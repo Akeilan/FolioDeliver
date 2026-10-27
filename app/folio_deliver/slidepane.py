@@ -80,20 +80,48 @@ class SlidePane(Gtk.Box):
         w = self.scroller.get_allocated_width()
         return max(1, int((w - 20) // (self.thumb_width() + 40)))
 
+    HEAD = 26
+
+    def section_starts(self):
+        """{first slide index: section name}, cached per change."""
+        deck = self.win.deck
+        key = (id(deck), deck.version)
+        if getattr(self, "_sec_key", None) != key:
+            self._sec_key = key
+            try:
+                self._secs = [(f, n) for n, f, _c in deck.sections()]
+            except Exception:
+                self._secs = []
+        return self._secs
+
     def cell(self, i):
-        """(x, y, w, h) of slide i's picture."""
+        """(x, y, w, h) of slide i's picture (sections put a heading before their first slide and,
+        in the sorter, start a new row)."""
         sw, sh = self.win.deck.size()
         tw = self.thumb_width()
         th = int(tw * sh / sw)
         cols = self.columns()
-        r, c = divmod(i, cols)
+        secs = self.section_starts()
         if self.sorter:
-            x = 30 + c * (tw + 40)
-            y = 16 + r * (th + 46)
-        else:
-            x = 36
-            y = 10 + r * (th + 14)
-        return x, y, tw, th
+            y = 16
+            row_start = 0
+            col = 0
+            starts = {f for f, _n in secs}
+            for k in range(i + 1):
+                if k in starts:
+                    if k != row_start or col:
+                        y += th + 46
+                    y += self.HEAD
+                    col = 0
+                    row_start = k
+                elif col >= cols:
+                    y += th + 46
+                    col = 0
+                if k < i:
+                    col += 1
+            return 30 + col * (tw + 40), y, tw, th
+        heads = sum(1 for f, _n in secs if f <= i)
+        return 36, 10 + i * (th + 14) + heads * self.HEAD, tw, th
 
     def relayout(self):
         deck = self.win.deck
@@ -191,6 +219,38 @@ class SlidePane(Gtk.Box):
                 cr.move_to(bx, by + 15)
                 cr.line_to(bx + ext.width + 8, by)
                 cr.stroke()
+        # section headings
+        for f, name in self.section_starts():
+            if f > n:
+                continue
+            if f < n:
+                x, y, w, h = self.cell(f)
+            else:
+                x, y, w, h = self.cell(n - 1) if n else (36, 10, tw, 0)
+                y += h + 14
+            cr.set_source_rgb(0.30, 0.30, 0.30)
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_font_size(11)
+            cr.move_to(8 if not self.sorter else 12, y - 9)
+            cr.show_text("\u25be " + name)
+            cr.select_font_face("Sans")
+        # transition marks (a small star beside the number, as the original's)
+        for i in range(n):
+            x, y, w, h = self.cell(i)
+            if y + h + 20 < clip[1] or y - 20 > clip[3]:
+                continue
+            try:
+                kind = deck.transition(i)[0]
+            except Exception:
+                kind = "none"
+            if kind != "none":
+                cr.set_source_rgb(0.45, 0.45, 0.45)
+                cr.set_font_size(10)
+                if self.sorter:
+                    cr.move_to(x + w - 12, y + h + 16)
+                else:
+                    cr.move_to(x - 22, y + 30)
+                cr.show_text("\u2605")
         # drop marker
         if self.drop_at is not None:
             cr.set_source_rgb(1.0, 0.51, 0.0)

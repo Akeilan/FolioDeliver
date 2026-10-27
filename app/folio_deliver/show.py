@@ -33,6 +33,9 @@ class ShowState:
         self.typed = ""
         self.last_viewed = None
         self.cache = {}
+        self.trans = None
+        self.no_click = False
+        self._adv = None
 
     @property
     def index(self):
@@ -77,10 +80,32 @@ class ShowState:
         pos = max(0, pos)
         if pos != self.pos:
             self.last_viewed = self.pos
+        old = self.index
         self.pos = pos
         if self.screen in ("black", "white"):
             self.screen = None
+        kind, opt, dur, click, after = self.deck.transition(self.index)
+        self.no_click = not click
+        if old is not None and pos == (self.order.index(old) + 1 if old in self.order else -1) and kind not in ("none",):
+            self.trans = (old, self.index, kind, opt, max(0.05, dur or 0.75), time.time())
+        else:
+            self.trans = None
+        self._schedule_advance(after)
         self.changed()
+
+    def _schedule_advance(self, after):
+        if getattr(self, "_adv", None):
+            GLib.source_remove(self._adv)
+            self._adv = None
+        if after is not None and after >= 0:
+            delay = after + (self.trans[4] if self.trans else 0)
+
+            def go():
+                self._adv = None
+                if not self.ended and self.paused_at is None:
+                    self.next()
+                return False
+            self._adv = GLib.timeout_add(int(delay * 1000) + 1, go)
 
     def next(self):
         self.go(self.pos + 1)
@@ -105,6 +130,9 @@ class ShowState:
         if self.ended:
             return
         self.ended = True
+        if self._adv:
+            GLib.source_remove(self._adv)
+            self._adv = None
         self.changed()
 
     def picture(self, i, w, h):
@@ -240,6 +268,19 @@ class ShowWindow(Gtk.Window):
             cr.set_source_rgb(1, 1, 1)
             cr.paint()
             return
+        tr = st.trans
+        if tr is not None:
+            a_i, b_i, kind, opt, dur, start = tr
+            t = (time.time() - start) / dur
+            if t < 1:
+                key = (a_i, b_i, w, h)
+                if getattr(self, "_tr_key", None) != key:
+                    self._tr_key = key
+                    self._tr = (frame_surface(st, a_i, w, h), frame_surface(st, b_i, w, h))
+                blend(cr, self._tr[0], self._tr[1], kind, opt, t, w, h)
+                GLib.timeout_add(14, lambda: (self.area.queue_draw(), False)[1])
+                return
+            st.trans = None
         draw_slide(cr, st, st.index, w, h, laser=self.laser if st.tool == "laser" else None)
         if self.stroke is not None and len(self.stroke[3]) > 1:
             sw, sh = st.deck.size()
@@ -271,7 +312,7 @@ class ShowWindow(Gtk.Window):
         if st.tool == "eraser":
             self._erase(ev)
             return True
-        if st.tool == "laser":
+        if st.tool == "laser" or st.no_click:
             return True
         st.next()
         return True
@@ -627,6 +668,9 @@ def start(win, index, presenter=False):
     st = ShowState(win, index)
     if not st.order:
         return None
+    _k, _o, _d, click, after = st.deck.transition(st.index)
+    st.no_click = not click
+    st._schedule_advance(after)
     disp = Gdk.Display.get_default()
     n = disp.get_n_monitors() if disp else 1
     primary = disp.get_primary_monitor() if disp else None
@@ -653,3 +697,155 @@ def start(win, index, presenter=False):
             win.show_ended(st)
     st.listeners.append(on_end)
     return st
+
+
+# ---------------------------------------------------------------- transitions
+def blend(cr, a, b, kind, opt, t, w, h, seed=7):
+    """One frame of a transition from picture a to b (cairo surfaces w x h, either may be None
+    for black), t from 0 to 1."""
+    import random
+    t = max(0.0, min(1.0, t))
+    e = t * t * (3 - 2 * t)          # ease in and out
+
+    def paint(s, x=0.0, y=0.0, alpha=1.0):
+        if s is None:
+            cr.set_source_rgb(0, 0, 0)
+            cr.rectangle(x, y, w, h)
+            cr.fill()
+            return
+        cr.set_source_surface(s, x, y)
+        cr.paint_with_alpha(alpha) if alpha < 1 else cr.paint()
+    cr.save()
+    cr.rectangle(0, 0, w, h)
+    cr.clip()
+    vec = {"u": (0, -1), "d": (0, 1), "l": (-1, 0), "r": (1, 0)}.get(opt or "", (-1, 0))
+    if kind == "fade":
+        if opt == "thruBlk":
+            if t < 0.5:
+                paint(a)
+                cr.set_source_rgba(0, 0, 0, e * 2 if e < 0.5 else 1)
+                cr.paint()
+            else:
+                paint(None)
+                paint(b, alpha=(t - 0.5) * 2)
+        else:
+            paint(a)
+            paint(b, alpha=e)
+    elif kind == "push":
+        dx, dy = vec[0] * w * e, vec[1] * h * e
+        paint(a, dx, dy)
+        paint(b, dx - vec[0] * w, dy - vec[1] * h)
+    elif kind == "cover":
+        paint(a)
+        paint(b, -vec[0] * w * (1 - e), -vec[1] * h * (1 - e))
+    elif kind == "pull":
+        paint(b)
+        paint(a, vec[0] * w * e, vec[1] * h * e)
+    elif kind == "wipe":
+        paint(a)
+        cr.save()
+        if vec[0] < 0:
+            cr.rectangle(w * (1 - e), 0, w * e, h)
+        elif vec[0] > 0:
+            cr.rectangle(0, 0, w * e, h)
+        elif vec[1] > 0:
+            cr.rectangle(0, 0, w, h * e)
+        else:
+            cr.rectangle(0, h * (1 - e), w, h * e)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "split":
+        paint(a)
+        cr.save()
+        if opt == "vert":
+            cr.rectangle(w / 2 * (1 - e), 0, w * e, h)
+        else:
+            cr.rectangle(0, h / 2 * (1 - e), w, h * e)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "randomBar":
+        paint(a)
+        rnd = random.Random(seed)
+        n = 60
+        order = list(range(n))
+        rnd.shuffle(order)
+        k = int(n * t)
+        cr.save()
+        for j in order[:k]:
+            if opt == "vert":
+                cr.rectangle(w * j / n, 0, w / n + 1, h)
+            else:
+                cr.rectangle(0, h * j / n, w, h / n + 1)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "dissolve":
+        paint(a)
+        rnd = random.Random(seed)
+        cols, rows = 32, 18
+        cells = [(c, r) for c in range(cols) for r in range(rows)]
+        rnd.shuffle(cells)
+        cr.save()
+        for c, r in cells[:int(len(cells) * t)]:
+            cr.rectangle(w * c / cols, h * r / rows, w / cols + 1, h / rows + 1)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "circle":
+        import math
+        paint(a)
+        cr.save()
+        cr.arc(w / 2, h / 2, e * math.hypot(w, h) / 2 + 1, 0, 2 * math.pi)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "zoom":
+        paint(a)
+        cr.save()
+        k = 0.3 + 0.7 * e
+        cr.translate(w / 2, h / 2)
+        cr.scale(k, k)
+        cr.translate(-w / 2, -h / 2)
+        paint(b, alpha=e)
+        cr.restore()
+    else:
+        paint(b)
+    cr.restore()
+
+
+def frame_surface(st, i, w, h):
+    """Slide i letterboxed into a w x h picture (None: black)."""
+    if i is None:
+        return None
+    s = cairo.ImageSurface(cairo.FORMAT_ARGB32, max(1, int(w)), max(1, int(h)))
+    cr = cairo.Context(s)
+    draw_slide(cr, st, i, w, h, ink=False)
+    return s
+
+
+def preview_in(win, prev, i, kind, opt, dur):
+    """Play a transition in the editing window's slide area (Transitions > Preview)."""
+    c = win.canvas
+    sw, sh = win.deck.size()
+    w, h = int(sw * c.scale), int(sh * c.scale)
+    if w < 2 or h < 2:
+        return
+    st = ShowState(win, i, hidden_too=True)
+    a = frame_surface(st, prev, w, h) if prev is not None else None
+    b = frame_surface(st, i, w, h)
+    start = time.time()
+    dur = max(0.2, dur or 0.75)
+    c.preview = None
+
+    def tick():
+        t = (time.time() - start) / dur
+        if t >= 1:
+            c.preview = None
+            c.queue()
+            return False
+        c.preview = (a, b, kind, opt, t)
+        c.queue()
+        return True
+    GLib.timeout_add(16, tick)

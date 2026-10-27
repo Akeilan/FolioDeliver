@@ -260,3 +260,20 @@ def white_image(name, size):
     out = GdkPixbuf.Pixbuf.new_from_data(bytes(data), GdkPixbuf.Colorspace.RGB, True, 8,
                                          w, h, rs)
     return Gtk.Image.new_from_pixbuf(out.copy())
+
+
+def dark_image(name, size, rgb=(0x1a, 0x1a, 0x1a)):
+    """The icon as a near-black silhouette (for the orange title bar, where white would not read)."""
+    pb = pixbuf(name, size)
+    if pb is None:
+        return image(name, size)
+    if not pb.get_has_alpha():
+        pb = pb.add_alpha(False, 0, 0, 0)
+    w, h, rs, n = pb.get_width(), pb.get_height(), pb.get_rowstride(), pb.get_n_channels()
+    data = bytearray(pb.get_pixels())
+    for y in range(h):
+        for x in range(w):
+            i = y * rs + x * n
+            data[i], data[i + 1], data[i + 2] = rgb
+    out = GdkPixbuf.Pixbuf.new_from_data(bytes(data), GdkPixbuf.Colorspace.RGB, True, 8, w, h, rs)
+    return Gtk.Image.new_from_pixbuf(out.copy())

@@ -31,6 +31,41 @@ pub struct Line {
     pub dash: String,
 }
 
+/// A table cell laid out (table coordinates, points).
+#[derive(Clone, Debug)]
+pub struct CellBox {
+    pub index: usize,
+    pub row: usize,
+    pub col: usize,
+    pub node: NodeId,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub lay: Layout,
+    pub bottom: f64,
+}
+
+/// The text style of a table cell: the presentation's defaults without bullets, bold and
+/// light text in a styled header row.
+pub fn cell_levels(levels: &[crate::scene::ParaP; 9], ctx: &Context, header: bool, first_col: bool, styled: bool) -> [crate::scene::ParaP; 9] {
+    let mut lv = levels.clone();
+    for l in lv.iter_mut() {
+        l.bullet = Some(crate::scene::Bullet::None);
+        l.mar_l = Some(0.0);
+        l.indent = Some(0.0);
+        if header || first_col {
+            l.def.b = Some(true);
+        }
+        if header {
+            l.def.color = Some(Rgba::new(ctx.scheme.named("lt1")));
+        } else if l.def.color.is_none() || styled {
+            l.def.color = Some(Rgba::new(ctx.scheme.named("dk1")));
+        }
+    }
+    lv
+}
+
 /// What the UI needs to know about each shape on a slide.
 #[derive(Clone, Debug)]
 pub struct ShapeInfo {
@@ -596,8 +631,14 @@ impl Painter {
         let mut prompt = String::new();
         if let Some((l, ln)) = &inh.layout {
             if let Ok(d) = deck.pkg.xml(l) {
-                if let Some(tb) = d.child(*ln, "p:txBody") {
-                    prompt = text::plain_text(d, tb).join("\n");
+                // only a layout placeholder marked with a custom prompt shows its own text
+                let custom = d.elements(*ln).find(|&c| d.name(c).starts_with("p:nv"))
+                    .and_then(|nv| path(d, nv, &["p:nvPr", "p:ph"]))
+                    .and_then(|p| d.attr(p, "hasCustomPrompt")).map(|v| v == "1" || v == "true").unwrap_or(false);
+                if custom {
+                    if let Some(tb) = d.child(*ln, "p:txBody") {
+                        prompt = text::plain_text(d, tb).join("\n");
+                    }
                 }
             }
         }
@@ -708,23 +749,17 @@ impl Painter {
         cr.restore().ok();
     }
 
-    fn draw_table(&mut self, deck: &mut Deck, ctx: &Context, cr: &cairo::Context, it: &Item, tbl: NodeId, env: &Env) {
-        let dom = it.dom;
+    /// A table's cells laid out: their boxes (table coordinates) and text.
+    pub fn table_cells(&mut self, deck: &mut Deck, ctx: &Context, dom: &XmlDoc, tbl: NodeId, env: &Env) -> Vec<CellBox> {
         let cols: Vec<f64> = dom.child(tbl, "a:tblGrid").map(|g| dom.children_named(g, "a:gridCol")
             .map(|c| emu(dom, c, "w").unwrap_or(0.0) / EMU_PT).collect()).unwrap_or_default();
         let tpr = dom.child(tbl, "a:tblPr");
         let flag = |k: &str| tpr.and_then(|t| dom.attr(t, k)).map(|v| v == "1" || v == "true").unwrap_or(false);
-        let (first_row, band_row, first_col, last_row) = (flag("firstRow"), flag("bandRow"), flag("firstCol"), flag("lastRow"));
+        let (first_row, first_col, last_row) = (flag("firstRow"), flag("firstCol"), flag("lastRow"));
         let styled = tpr.and_then(|t| dom.child(t, "a:tableStyleId")).is_some() || tpr.is_some_and(|t| dom.elements(t).next().is_none());
-        let accent = Rgba::new(ctx.scheme.named("accent1"));
-        let tint = |c: Rgba, t: f64| {
-            let f = |v: f64| v + (1.0 - v) * t;
-            Rgba { rgb: (((f(c.r()) * 255.0).round() as u32) << 16) | (((f(c.g()) * 255.0).round() as u32) << 8) | ((f(c.b()) * 255.0).round() as u32), a: 1.0 }
-        };
         let rows: Vec<NodeId> = dom.children_named(tbl, "a:tr").collect();
-        // row heights grow to fit their text
         let mut heights: Vec<f64> = rows.iter().map(|r| emu(dom, *r, "h").unwrap_or(0.0) / EMU_PT).collect();
-        let mut cells: Vec<(usize, usize, NodeId, f64, f64, Layout)> = Vec::new();
+        let mut cells: Vec<CellBox> = Vec::new();
         let levels = {
             let mut lv: [crate::scene::ParaP; 9] = Default::default();
             let pres = deck.pres.clone();
@@ -736,8 +771,11 @@ impl Painter {
             lv
         };
         let nrows = rows.len();
+        let mut index = 0usize;
         for (ri, r) in rows.iter().enumerate() {
             for (ci, c) in dom.children_named(*r, "a:tc").enumerate() {
+                let my_index = index;
+                index += 1;
                 if dom.attr(c, "hMerge").is_some() || dom.attr(c, "vMerge").is_some() {
                     continue;
                 }
@@ -750,31 +788,19 @@ impl Painter {
                 body.r = m("marR", 7.2);
                 body.t = m("marT", 3.6);
                 body.b = m("marB", 3.6);
-                if let Some(a) = pr.and_then(|p| dom.attr(p, "anchor")) {
-                    body.anchor = a.to_string();
-                }
-                let mut lv = levels.clone();
-                let header = styled && ((first_row && ri == 0) || (last_row && ri + 1 == nrows));
-                for l in lv.iter_mut() {
-                    l.bullet = Some(crate::scene::Bullet::None);
-                    l.mar_l = Some(0.0);
-                    l.indent = Some(0.0);
-                    if header || (styled && first_col && ci == 0) {
-                        l.def.b = Some(true);
-                    }
-                    if header {
-                        l.def.color = Some(Rgba::new(ctx.scheme.named("lt1")));
-                    } else if l.def.color.is_none() || styled {
-                        l.def.color = Some(Rgba::new(ctx.scheme.named("dk1")));
-                    }
-                }
+                let lv = cell_levels(&levels, ctx, styled && ((first_row && ri == 0) || (last_row && ri + 1 == nrows)),
+                                     styled && first_col && ci == 0, styled);
                 let lay = match dom.child(c, "a:txBody") {
                     Some(tb) => {
                         let paras = text::read_paras(dom, tb, &lv, &ctx.scheme, env);
                         let cc = ctx.clone();
                         text::layout(paras, &body, cw, heights[ri], &mut self.fonts, &move |f: &str| cc.font(f), env)
                     }
-                    None => Layout::default(),
+                    None => {
+                        let paras = vec![Para { node: None, level: 0, props: lv[0].clone(), pieces: Vec::new(), end: lv[0].def.clone() }];
+                        let cc = ctx.clone();
+                        text::layout(paras, &body, cw, heights[ri], &mut self.fonts, &move |f: &str| cc.font(f), env)
+                    }
                 };
                 let need = lay.height + body.t + body.b;
                 let rspan = emu(dom, c, "rowSpan").unwrap_or(1.0) as usize;
@@ -782,34 +808,59 @@ impl Painter {
                     heights[ri] = need;
                 }
                 let x: f64 = cols.iter().take(ci).sum();
-                cells.push((ri, ci, c, x, cw, lay));
+                cells.push(CellBox { index: my_index, row: ri, col: ci, node: c, x, y: 0.0, w: cw, h: 0.0, lay, bottom: body.b });
             }
         }
         let tops: Vec<f64> = heights.iter().scan(0.0, |acc, h| { let t = *acc; *acc += h; Some(t) }).collect();
-        for (ri, ci, c, x, cw, lay) in &cells {
-            let rspan = emu(dom, *c, "rowSpan").unwrap_or(1.0) as usize;
-            let ch: f64 = heights.iter().skip(*ri).take(rspan.max(1)).sum();
-            let y = tops[*ri];
-            let pr = dom.child(*c, "a:tcPr");
+        for cb in cells.iter_mut() {
+            let rspan = emu(dom, cb.node, "rowSpan").unwrap_or(1.0) as usize;
+            cb.h = heights.iter().skip(cb.row).take(rspan.max(1)).sum();
+            cb.y = tops[cb.row];
+            let anchor = dom.child(cb.node, "a:tcPr").and_then(|p| dom.attr(p, "anchor")).unwrap_or("t");
+            let top = cb.lay.y;
+            cb.lay.y = match anchor {
+                "ctr" => (cb.h - cb.lay.height) / 2.0,
+                "b" => cb.h - cb.bottom - cb.lay.height,
+                _ => top,
+            };
+        }
+        cells
+    }
+
+    fn draw_table(&mut self, deck: &mut Deck, ctx: &Context, cr: &cairo::Context, it: &Item, tbl: NodeId, env: &Env) {
+        let dom = it.dom;
+        let tpr = dom.child(tbl, "a:tblPr");
+        let flag = |k: &str| tpr.and_then(|t| dom.attr(t, k)).map(|v| v == "1" || v == "true").unwrap_or(false);
+        let (first_row, band_row, last_row) = (flag("firstRow"), flag("bandRow"), flag("lastRow"));
+        let styled = tpr.and_then(|t| dom.child(t, "a:tableStyleId")).is_some() || tpr.is_some_and(|t| dom.elements(t).next().is_none());
+        let accent = Rgba::new(ctx.scheme.named("accent1"));
+        let tint = |c: Rgba, t: f64| {
+            let f = |v: f64| v + (1.0 - v) * t;
+            Rgba { rgb: (((f(c.r()) * 255.0).round() as u32) << 16) | (((f(c.g()) * 255.0).round() as u32) << 8) | ((f(c.b()) * 255.0).round() as u32), a: 1.0 }
+        };
+        let nrows = dom.children_named(tbl, "a:tr").count();
+        let cells = self.table_cells(deck, ctx, dom, tbl, env);
+        for cb in &cells {
+            let (x, y, cw, ch, ri) = (cb.x, cb.y, cb.w, cb.h, cb.row);
+            let pr = dom.child(cb.node, "a:tcPr");
             // the cell's fill, else the table style's
             let own = pr.and_then(|p| fill_of(deck, &ctx.scheme, it.part, dom, p, None));
             let fill = own.unwrap_or_else(|| {
                 if !styled {
                     Fill::None
-                } else if (first_row && *ri == 0) || (last_row && *ri + 1 == nrows) {
+                } else if (first_row && ri == 0) || (last_row && ri + 1 == nrows) {
                     Fill::Solid(accent)
-                } else if band_row && (*ri - usize::from(first_row)) % 2 == 0 {
+                } else if band_row && (ri - usize::from(first_row)) % 2 == 0 {
                     Fill::Solid(tint(accent, 0.6))
                 } else {
                     Fill::Solid(tint(accent, 0.8))
                 }
             });
-            cr.rectangle(*x, y, *cw, ch);
-            self.paint_fill(deck, cr, &fill, *cw, ch, (*x, y, *cw, ch));
-            // borders
+            cr.rectangle(x, y, cw, ch);
+            self.paint_fill(deck, cr, &fill, cw, ch, (x, y, cw, ch));
             let mut any = false;
-            for (k, x0, y0, x1, y1) in [("a:lnL", *x, y, *x, y + ch), ("a:lnR", *x + cw, y, *x + cw, y + ch),
-                                         ("a:lnT", *x, y, *x + cw, y), ("a:lnB", *x, y + ch, *x + cw, y + ch)] {
+            for (k, x0, y0, x1, y1) in [("a:lnL", x, y, x, y + ch), ("a:lnR", x + cw, y, x + cw, y + ch),
+                                         ("a:lnT", x, y, x + cw, y), ("a:lnB", x, y + ch, x + cw, y + ch)] {
                 if let Some(ln) = pr.and_then(|p| dom.child(p, k)) {
                     any = true;
                     if dom.child(ln, "a:noFill").is_some() {
@@ -827,21 +878,18 @@ impl Painter {
             if !any && styled {
                 cr.set_source_rgb(1.0, 1.0, 1.0);
                 cr.set_line_width(1.0);
-                cr.rectangle(*x, y, *cw, ch);
+                cr.rectangle(x, y, cw, ch);
+                cr.stroke().ok();
+            } else if !any {
+                // an unstyled table shows faint gridlines while editing, as PowerPoint does
+                cr.set_source_rgba(0.6, 0.6, 0.6, 0.6);
+                cr.set_line_width(0.5);
+                cr.rectangle(x, y, cw, ch);
                 cr.stroke().ok();
             }
             cr.save().ok();
-            cr.translate(*x, y);
-            // anchor again now the row height is known
-            let mut lay2 = lay.clone();
-            let anchor = pr.and_then(|p| dom.attr(p, "anchor")).unwrap_or("t");
-            let th = ch - (lay.y) - 3.6;
-            lay2.y = match anchor {
-                "ctr" => (ch - lay.height) / 2.0,
-                "b" => th - lay.height + lay.y,
-                _ => lay.y,
-            };
-            self.draw_text(cr, &lay2, *cw, ch, &crate::scene::default_body(), false);
+            cr.translate(x, y);
+            self.draw_text(cr, &cb.lay, cw, ch, &crate::scene::default_body(), false);
             cr.restore().ok();
         }
     }

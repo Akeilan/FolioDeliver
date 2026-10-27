@@ -555,7 +555,7 @@ def build_ribbon(win):
     t = r.building(Tab("Insert", "N"))
     B.group(t, "Slides", [SplitButton(r, "New Slide", "insertslide", "new-slide", lambda: layouts_menu(win), size="large",
                                       keytip="I", tooltip="New Slide (Ctrl+M)")])
-    B.group(t, "Tables", [B.big("Table", "r-table", "insert-table", "T")])
+    B.group(t, "Tables", [MenuButton(r, "Table", "r-table", lambda: win.table_menu(), size="large", keytip="T")])
     B.group(t, "Images", [B.big("Pictures", "r-pictures", "insert-picture", "P"),
                           B.big("Screenshot", "r-screenshot", "screenshot", "SC"),
                           B.big("Photo Album", "insertgraphic", "photo-album", "A")])
@@ -587,9 +587,14 @@ def build_ribbon(win):
     r.add_tab(t)
 
     # ================================================================ Design
+    from .more_ui import COLOR_SETS, FONT_SETS, THEMES, TRANSITIONS
     t = r.building(Tab("Design", "G"))
-    B.group(t, "Themes", [B.big("Office Theme", "r-themes", na("Themes"), "TH")])
-    B.group(t, "Variants", [B.big("Variants", "r-colors-sm", na("Theme variants"), "V")])
+    B.group(t, "Themes", [B.big(name, "r-themes", "theme:" + name, "TH" if k == 0 else "T%d" % k, tip=name + " theme")
+                          for k, (name, _c, _f) in enumerate(THEMES[:5])] +
+            [B.big("More Themes", "r-themes", None, "TM", menu=[(n, "theme:" + n) for n, _c, _f in THEMES])])
+    B.group(t, "Variants", [[B.small("Colors", "r-colors-sm", None, "TC", menu=[(n, "theme-colors:" + n) for n, _c in COLOR_SETS]),
+                             B.small("Fonts", "r-fonts-sm", None, "TF", menu=[("%s (%s / %s)" % (n, a, b), "theme-fonts:" + n) for n, a, b in FONT_SETS]),
+                             B.small("Background Styles", "r-background", "format-background", "BS")]])
     B.group(t, "Customize", [B.big("Slide Size", "slidesetup", None, "S",
                                    menu=[("Standard (4:3)", "slide-size:4:3"), ("Widescreen (16:9)", "slide-size:16:9"),
                                          None, ("Custom Slide Size...", "slide-size:custom")]),
@@ -598,10 +603,20 @@ def build_ribbon(win):
 
     # ================================================================ Transitions
     t = r.building(Tab("Transitions", "K"))
-    B.group(t, "Preview", [B.big("Preview", "presentationcurrentslide", na("Transitions"), "P")])
-    B.group(t, "Transition to This Slide", [B.big("None", "slidechangewindow", na("Transitions"), "T"),
-                                            B.big("Fade", "slidechangewindow", na("Transitions"), "F")])
-    B.group(t, "Timing", [[B.small("Apply To All", "r-format-painter-sm", na("Transitions"), "L")]])
+    B.group(t, "Preview", [B.big("Preview", "presentationcurrentslide", "transition-preview", "P")])
+    tr_buttons = []
+    for k, (kind, label, _o) in enumerate(TRANSITIONS):
+        tr_buttons.append(RibbonButton(r, label, "slidechangewindow" if kind != "none" else "r-clear-sm", "transition:" + kind,
+                                       size="large", state="tr-" + kind, keytip="T%d" % k if k else "TN",
+                                       tooltip=label))
+    B.group(t, "Transition to This Slide", tr_buttons +
+            [MenuButton(r, "Effect Options", "r-effects-sm", lambda: _menu_pop(B, win.transition_options_menu()), size="large", keytip="E")])
+    win.duration_spin = TimeSpin(win, "transition-duration", 0, 59, 0.75)
+    win.after_spin = TimeSpin(win, "transition-after", 0, 86399, 0.0)
+    win.click_check = CheckControl(r, "On Mouse Click", "transition-click", active=True, keytip="M")
+    win.after_check = CheckControl(r, "After:", "transition-after", active=False, keytip="AF")
+    B.group(t, "Timing", [[_labelled("Duration:", win.duration_spin), B.small("Apply To All", "r-format-painter-sm", "transition-apply-all", "L")],
+                          [win.click_check, [win.after_check, win.after_spin]]])
     r.add_tab(t)
 
     # ================================================================ Animations
@@ -698,6 +713,30 @@ def build_ribbon(win):
             launcher="format-shape", launcher_keytip="SZ")
     r.add_tab(t)
 
+    # ================================================================ Table Design / Layout (contextual)
+    t = r.building(Tab("Table Design", "JT", contextual=True))
+    win.table_checks = {}
+    opts = [("Header Row", "firstRow"), ("Total Row", "lastRow"), ("Banded Rows", "bandRow"),
+            ("First Column", "firstCol"), ("Last Column", "lastCol"), ("Banded Columns", "bandCol")]
+    for label, key in opts:
+        win.table_checks[key] = CheckControl(r, label, "table-option:" + key, state="tbl-" + key, keytip=label[:1] + label.split()[-1][:1])
+    B.group(t, "Table Style Options", [[win.table_checks[k] for _l, k in opts[:3]], [win.table_checks[k] for _l, k in opts[3:]]])
+    B.group(t, "Table Styles", [[SplitButton(r, "Shading", "r-fill-color-sm", "table-shading:scheme:accent1",
+                                             color_menu(win, "table-shading", "No Fill"), size="small", keytip="H", tooltip="Shading")]])
+    r.add_tab(t)
+    t = r.building(Tab("Table Layout", "JL", contextual=True))
+    B.group(t, "Table", [B.big("Select", "selectall", "select-table", "K")])
+    B.group(t, "Rows & Columns", [B.big("Delete", "r-delete-cells", None, "D",
+                                        menu=[("Delete Columns", "table-delete:cols"), ("Delete Rows", "table-delete:rows"),
+                                              ("Delete Table", "table-delete:table")]),
+                                  B.big("Insert Above", "r-insert-cells", "table-insert:above", "A"),
+                                  B.big("Insert Below", "r-insert-cells", "table-insert:below", "BE"),
+                                  [B.small("Insert Left", "r-insert-cells", "table-insert:left", "L"),
+                                   B.small("Insert Right", "r-insert-cells", "table-insert:right", "R")]])
+    B.group(t, "Alignment", [[B.icon("r-align-left-sm", "align:l", "AL", "Align Left"), B.icon("r-align-center-sm", "align:ctr", "AC", "Center"),
+                              B.icon("r-align-right-sm", "align:r", "AR", "Align Right")]])
+    r.add_tab(t)
+
     # ================================================================ Picture Format (contextual)
     t = r.building(Tab("Picture Format", "JP", contextual=True))
     B.group(t, "Adjust", [B.big("Change Picture", "r-pictures", "change-picture", "CP"),
@@ -765,3 +804,24 @@ class SizeSpin(Gtk.SpinButton):
         self.quiet = True
         self.set_value(inches)
         self.quiet = False
+
+
+def _menu_pop(B, items):
+    """A menu built when it opens (its items depend on the slide)."""
+    return menu_popover(None, B.menu(items))
+
+
+class TimeSpin(Gtk.SpinButton):
+    """Seconds, shown as PowerPoint shows them (00.75)."""
+    def __init__(self, win, cmd, lo, hi, value):
+        adj = Gtk.Adjustment(value=value, lower=lo, upper=hi, step_increment=0.25, page_increment=1)
+        Gtk.SpinButton.__init__(self, adjustment=adj, digits=2)
+        self.win = win
+        self.cmd = cmd
+        self.quiet = False
+        self.set_width_chars(6)
+        self.connect("value-changed", self._changed)
+
+    def _changed(self, *_):
+        if not self.quiet:
+            self.win.run("%s:%.2f" % (self.cmd, self.get_value()))

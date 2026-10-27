@@ -151,6 +151,7 @@ impl Deck {
     /// A new slide after slide `after` (None: at the start) with `layout`.
     pub fn new_slide(&mut self, after: Option<usize>, layout: &str) -> Result<usize, String> {
         let part = self.free_name("ppt/slides", "slide", "xml");
+        let secs = self.section_parts();
         self.begin("New Slide", &self.structure_parts(&[part.clone()]));
         let mut shapes = String::new();
         let mut id = 2;
@@ -200,8 +201,9 @@ impl Deck {
         self.pkg.set_content_type(&part, CT_SLIDE);
         self.pkg.add_rel(&part, &format!("{RT}slideLayout"), &rel_path(&part, layout));
         let at = after.map(|a| (a + 1).min(self.slides.len())).unwrap_or(0);
-        self.slides.insert(at, part);
+        self.slides.insert(at, part.clone());
         self.write_slide_list()?;
+        self.fix_sections(secs, &[part])?;
         self.commit();
         Ok(at)
     }
@@ -225,6 +227,7 @@ impl Deck {
                 n += 1;
             }
         }
+        let secs = self.section_parts();
         self.begin("Duplicate Slide", &self.structure_parts(&taken));
         for (k, i) in idx.iter().enumerate() {
             let src = self.slides[*i].clone();
@@ -255,10 +258,11 @@ impl Deck {
             news.push(dst);
         }
         let at = last + 1;
-        for (k, n) in news.into_iter().enumerate() {
-            self.slides.insert(at + k, n);
+        for (k, n) in news.iter().enumerate() {
+            self.slides.insert(at + k, n.clone());
         }
         self.write_slide_list()?;
+        self.fix_sections(secs, &news)?;
         self.commit();
         Ok(at)
     }
@@ -274,6 +278,7 @@ impl Deck {
                 touched.push(n);
             }
         }
+        let secs = self.section_parts();
         self.begin(if parts.len() > 1 { "Delete Slides" } else { "Delete Slide" }, &self.structure_parts(&touched));
         for p in &touched {
             self.pkg.remove(p);
@@ -289,6 +294,7 @@ impl Deck {
         }
         self.slides.retain(|s| !parts.contains(s));
         self.write_slide_list()?;
+        self.fix_sections(secs, &[])?;
         self.commit();
         Ok(())
     }
@@ -301,15 +307,17 @@ impl Deck {
         if idx.is_empty() {
             return Ok(to);
         }
+        let secs = self.section_parts();
         self.begin("Move Slide", &self.structure_parts(&[]));
         let moving: Vec<String> = idx.iter().map(|i| self.slides[*i].clone()).collect();
         let before = idx.iter().filter(|i| **i < to).count();
         self.slides.retain(|s| !moving.contains(s));
         let at = (to - before).min(self.slides.len());
-        for (k, m) in moving.into_iter().enumerate() {
-            self.slides.insert(at + k, m);
+        for (k, m) in moving.iter().enumerate() {
+            self.slides.insert(at + k, m.clone());
         }
         self.write_slide_list()?;
+        self.fix_sections(secs, &moving)?;
         self.commit();
         Ok(at)
     }
@@ -792,8 +800,18 @@ impl Deck {
     // ------------------------------------------------------------ text
     /// The txBody of a shape, made if it has none.
     fn body_of(&mut self, part: &str, id: u32, make: bool) -> Result<NodeId, String> {
-        let n = self.find_shape(part, id).ok_or("no such shape")?;
+        let (sid, cell) = split_tid(id);
+        let n = self.find_shape(part, sid).ok_or("no such shape")?;
         let d = self.pkg.xml_mut(part).map_err(|e| e.to_string())?;
+        if let Some(k) = cell {
+            let tc = cell_node(d, n, k).ok_or("no such cell")?;
+            if let Some(tb) = d.child(tc, "a:txBody") {
+                return Ok(tb);
+            }
+            let tb = fragment(d, r#"<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p></a:txBody>"#).unwrap();
+            d.insert(tc, 0, tb);
+            return Ok(tb);
+        }
         if let Some(tb) = d.child(n, "p:txBody") {
             return Ok(tb);
         }
@@ -807,11 +825,19 @@ impl Deck {
 
     pub fn paragraphs(&mut self, i: usize, id: u32) -> Vec<String> {
         let Ok(part) = self.slide_part(i) else { return Vec::new() };
-        let Some(n) = self.find_shape(&part, id) else { return Vec::new() };
+        let (sid, cell) = split_tid(id);
+        let Some(n) = self.find_shape(&part, sid) else { return Vec::new() };
         let Ok(d) = self.pkg.xml(&part) else { return Vec::new() };
-        match d.child(n, "p:txBody") {
+        let tb = match cell {
+            Some(k) => match cell_node(d, n, k) {
+                Some(tc) => d.child(tc, "a:txBody"),
+                None => return Vec::new(),
+            },
+            None => d.child(n, "p:txBody"),
+        };
+        match tb {
             Some(tb) => crate::text::plain_text(d, tb),
-            None => Vec::new(),
+            None => if cell.is_some() { vec![String::new()] } else { Vec::new() },
         }
     }
 
@@ -1031,10 +1057,20 @@ impl Deck {
     pub fn run_props_at(&mut self, i: usize, id: u32, para: usize, off: usize) -> Option<crate::scene::RunP> {
         let part = self.slide_part(i).ok()?;
         let ctx = scene::context(self, &part);
-        let n = self.find_shape(&part, id)?;
-        let levels = scene::text_levels(self, &ctx, &part, n);
+        let (sid, cell) = split_tid(id);
+        let n = self.find_shape(&part, sid)?;
+        let levels = if cell.is_some() {
+            let pres = self.pres.clone();
+            let lv = self.pkg.xml(&pres).ok().and_then(|d| d.child(d.root, "p:defaultTextStyle").map(|t| scene::read_levels(d, t, &ctx.scheme)));
+            crate::render::cell_levels(&lv.unwrap_or_default(), &ctx, false, false, true)
+        } else {
+            scene::text_levels(self, &ctx, &part, n)
+        };
         let d = self.pkg.xml(&part).ok()?;
-        let tb = d.child(n, "p:txBody")?;
+        let tb = match cell {
+            Some(k) => d.child(cell_node(d, n, k)?, "a:txBody")?,
+            None => d.child(n, "p:txBody")?,
+        };
         let paras = crate::text::read_paras(d, tb, &levels, &ctx.scheme, &crate::text::Env::default());
         let p = paras.get(para)?;
         let mut at = 0;
@@ -1891,4 +1927,20 @@ impl Deck {
         self.commit();
         Ok(())
     }
+}
+
+/// A text target: a shape id, or a table cell (shape id + cell index, cell counted row by row).
+pub fn split_tid(tid: u32) -> (u32, Option<usize>) {
+    let cell = tid >> 20;
+    (tid & 0xFFFFF, if cell == 0 { None } else { Some(cell as usize - 1) })
+}
+
+pub fn cell_tid(sid: u32, cell: usize) -> u32 {
+    sid | (((cell + 1) as u32) << 20)
+}
+
+/// The k-th a:tc of a table frame (row by row, merged cells counted).
+pub fn cell_node(d: &XmlDoc, frame: NodeId, k: usize) -> Option<NodeId> {
+    let tbl = path(d, frame, &["a:graphic", "a:graphicData", "a:tbl"])?;
+    d.children_named(tbl, "a:tr").flat_map(|r| d.children_named(r, "a:tc").collect::<Vec<_>>()).nth(k)
 }

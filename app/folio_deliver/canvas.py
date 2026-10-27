@@ -28,6 +28,16 @@ class TextEdit:
         self.anchor = caret
         self.want_x = None
 
+    @property
+    def base(self):
+        """The shape the text is in (a table's text is in one of its cells)."""
+        return self.id & 0xFFFFF
+
+    @property
+    def cell(self):
+        c = self.id >> 20
+        return c - 1 if c else None
+
     def has_selection(self):
         return self.caret != self.anchor
 
@@ -141,7 +151,7 @@ class SlideCanvas(Gtk.Box):
         self.shapes = shapes
         ids = {s["id"] for s in shapes}
         self.sel = [s for s in self.sel if s in ids]
-        if self.edit is not None and self.edit.id not in ids:
+        if self.edit is not None and self.edit.base not in ids:
             self.edit = None
         return surf, shapes
 
@@ -177,6 +187,14 @@ class SlideCanvas(Gtk.Box):
         cr.set_source_rgba(0, 0, 0, 0.18)
         cr.rectangle(self.ox + 2, self.oy + 2, sw * self.scale, sh * self.scale)
         cr.fill()
+        pv = getattr(self, "preview", None)
+        if pv is not None:
+            from .show import blend
+            cr.save()
+            cr.translate(round(self.ox), round(self.oy))
+            blend(cr, pv[0], pv[1], pv[2], pv[3], pv[4], surf.get_width(), surf.get_height())
+            cr.restore()
+            return
         cr.set_source_surface(surf, round(self.ox), round(self.oy))
         cr.paint()
         if self.show_grid:
@@ -236,7 +254,7 @@ class SlideCanvas(Gtk.Box):
             s = self.shape(sid)
             if s is None:
                 continue
-            editing = self.edit is not None and self.edit.id == sid
+            editing = self.edit is not None and self.edit.base == sid
             pts = self._corners(s)
             cr.set_line_width(1)
             if editing:
@@ -272,7 +290,7 @@ class SlideCanvas(Gtk.Box):
 
     def _draw_text_edit(self, cr):
         e = self.edit
-        s = self.shape(e.id)
+        s = self.shape(e.base)
         if s is None:
             return
         cx, cy = s["x"] + s["w"] / 2, s["y"] + s["h"] / 2
@@ -363,6 +381,17 @@ class SlideCanvas(Gtk.Box):
                 return s
         return None
 
+    def cell_at(self, s, sx, sy):
+        """The table cell (index) under a slide point."""
+        try:
+            cells = self.deck.table_cells(self.index, s["id"])
+        except Exception:
+            return None
+        for k, _r, _c, x, y, w, h in cells:
+            if x <= sx <= x + w and y <= sy <= y + h:
+                return k
+        return None
+
     def on_edge(self, s, sx, sy):
         """Near the border of a shape (where a click selects it instead of placing the caret)."""
         cx, cy = s["x"] + s["w"] / 2, s["y"] + s["h"] / 2
@@ -384,7 +413,7 @@ class SlideCanvas(Gtk.Box):
     # ------------------------------------------------------------ selection
     def select(self, ids, edit=None):
         self.sel = list(ids)
-        if edit is None and self.edit is not None and self.edit.id not in self.sel:
+        if edit is None and self.edit is not None and self.edit.base not in self.sel:
             self.leave_text()
         self.queue()
         self.win.selection_changed()
@@ -404,14 +433,15 @@ class SlideCanvas(Gtk.Box):
         self.select([])
 
     def start_text(self, sid, caret=None, select_all=False):
-        s = self.shape(sid)
+        base = sid & 0xFFFFF
+        s = self.shape(base)
         if s is None:
             self.compute_scale()
             self._surface()
-            s = self.shape(sid)
-        if s is None or not (s["has_text"] or s["kind"] == "sp"):
+            s = self.shape(base)
+        if s is None or not (s["has_text"] or s["kind"] == "sp" or (s["geom"] == "table" and sid != base)):
             return False
-        self.sel = [sid]
+        self.sel = [base]
         paras = self.deck.paragraphs(self.index, sid) or [""]
         if caret is None:
             caret = (len(paras) - 1, len(paras[-1]))
@@ -429,7 +459,7 @@ class SlideCanvas(Gtk.Box):
     def leave_text(self):
         if self.edit is None:
             return
-        sid = self.edit.id
+        sid = self.edit.base
         self.edit = None
         self.deck.break_typing()
         if self._blink:
@@ -477,7 +507,7 @@ class SlideCanvas(Gtk.Box):
             return True
         if ev.type == Gdk.EventType._2BUTTON_PRESS:
             s = self.hit_shape(sx, sy)
-            if s is not None and self.edit is not None and self.edit.id == s["id"]:
+            if s is not None and self.edit is not None and self.edit.base == s["id"]:
                 self._select_word()
                 return True
             if s is not None and s["kind"] in ("sp",):
@@ -499,8 +529,25 @@ class SlideCanvas(Gtk.Box):
             self._begin_drag("rot" if handle == "rot" else "size", ev, s, handle)
             return True
         s = self.hit_shape(sx, sy)
+        # a table: the click goes into the cell under it
+        if s is not None and s["geom"] == "table" and not self.on_edge(s, sx, sy):
+            cell = self.cell_at(s, sx, sy)
+            if cell is not None:
+                from .core import Presentation
+                tid = Presentation.cell_id(s["id"], cell)
+                if self.edit is None or self.edit.id != tid:
+                    self.leave_text()
+                    self.start_text(tid, (0, 0))
+                pos = self.deck.hit(self.index, tid, sx, sy)
+                self.edit.caret = pos if shift else pos
+                if not shift:
+                    self.edit.anchor = pos
+                self.drag = {"kind": "textsel", "start": (ev.x, ev.y)}
+                self.queue()
+                self.win.selection_changed()
+                return True
         # inside the text being edited: place the caret
-        if self.edit is not None and s is not None and s["id"] == self.edit.id and not self.on_edge(s, sx, sy):
+        if self.edit is not None and s is not None and s["id"] == self.edit.base and not self.on_edge(s, sx, sy):
             pos = self.deck.hit(self.index, s["id"], sx, sy)
             self.deck.break_typing()
             if shift:
@@ -841,6 +888,28 @@ class SlideCanvas(Gtk.Box):
         e.caret = e.anchor = tuple(self.deck.delete_text(self.index, e.id, a, b, "Typing"))
         self._after_text()
 
+    def next_cell(self, step):
+        from .core import Presentation
+        e = self.edit
+        cells = [c[0] for c in self.deck.table_cells(self.index, e.base)]
+        k = cells.index(e.cell) if e.cell in cells else 0
+        j = k + step
+        if j >= len(cells):
+            # Tab in the last cell adds a row (PowerPoint)
+            rows, _cols = self.deck.table_size(self.index, e.base)
+            self.deck.table_insert_row(self.index, e.base, rows)
+            self.win.changed(slide=True)
+            cells = [c[0] for c in self.deck.table_cells(self.index, e.base)]
+        if j < 0:
+            return
+        tid = Presentation.cell_id(e.base, cells[j])
+        self.edit = None
+        self.start_text(tid, (0, 0))
+        paras = self.paras()
+        self.edit.anchor = (0, 0)
+        self.edit.caret = (len(paras) - 1, len(paras[-1]) if paras else 0)
+        self.queue()
+
     def _select_word(self):
         e = self.edit
         if e is None:
@@ -1049,6 +1118,9 @@ class SlideCanvas(Gtk.Box):
                 if ctrl:
                     return False                      # next placeholder (window)
                 self.type_text("\x0b" if shift else "\n")
+                return True
+            if name in ("Tab", "ISO_Left_Tab") and e.cell is not None:
+                self.next_cell(-1 if (shift or name == "ISO_Left_Tab") else 1)
                 return True
             if name in ("Tab", "ISO_Left_Tab"):
                 p, o = e.caret

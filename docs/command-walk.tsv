@@ -103,7 +103,6 @@ find	OK
 replace	OK
 select-all	OK
 select-objects	OK
-insert-table	OK
 insert-picture	OK
 screenshot	OK
 photo-album	OK
@@ -125,13 +124,50 @@ not-available:Audio	NOT_YET
 pointer	OK
 not-available:Ink on slides	NOT_YET
 not-available:Ink to Shape	NOT_YET
-not-available:Themes	NOT_YET
-not-available:Theme variants	NOT_YET
+theme:Office Theme	OK
+theme:Volunteer	OK
+theme:Harbor	OK
+theme:Forest	OK
+theme:Plum	OK
+theme:Slate	OK
+theme:Ember	OK
+theme:Grayscale	OK
+theme-colors:Office	OK
+theme-colors:Office 2007 - 2010	OK
+theme-colors:Grayscale	OK
+theme-colors:Volunteer	OK
+theme-colors:Harbor	OK
+theme-colors:Forest	OK
+theme-colors:Plum	OK
+theme-colors:Slate	OK
+theme-colors:Ember	OK
+theme-fonts:Office	OK
+theme-fonts:Office 2007 - 2010	OK
+theme-fonts:Arial	OK
+theme-fonts:Times New Roman	OK
+theme-fonts:Georgia / Calibri	OK
+theme-fonts:Liberation Sans	OK
+theme-fonts:DejaVu	OK
+format-background	OK
 slide-size:4:3	OK
 slide-size:16:9	OK
 slide-size:custom	OK
-format-background	OK
-not-available:Transitions	NOT_YET
+transition-preview	OK
+transition:none	OK
+transition:cut	OK
+transition:fade	OK
+transition:push	OK
+transition:wipe	OK
+transition:split	OK
+transition:pull	OK
+transition:cover	OK
+transition:randomBar	OK
+transition:circle	OK
+transition:dissolve	OK
+transition:zoom	OK
+transition-click	OK
+transition-after	OK
+transition-apply-all	OK
 not-available:Animations	NOT_YET
 not-available:Animation Pane	NOT_YET
 not-available:Custom Slide Shows	NOT_YET
@@ -165,6 +201,21 @@ not-available:Macros	NOT_YET
 shortcuts	OK
 about	OK
 format-shape	OK
+table-option:firstRow	OK
+table-option:lastRow	OK
+table-option:bandRow	OK
+table-option:firstCol	OK
+table-option:lastCol	OK
+table-option:bandCol	OK
+table-shading:scheme:accent1	OK
+select-table	OK
+table-delete:cols	OK
+table-delete:rows	OK
+table-delete:table	OK
+table-insert:above	OK
+table-insert:below	OK
+table-insert:left	OK
+table-insert:right	OK
 change-picture	OK
 not-available:Reset Picture	NOT_YET
 not-available:Crop	NOT_YET
