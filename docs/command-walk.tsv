@@ -1,0 +1,181 @@
+paste	OK
+paste-text	OK
+paste-picture	OK
+cut	OK
+copy	OK
+format-painter	OK
+not-available:Clipboard pane	NOT_YET
+new-slide	OK
+reset-slide	OK
+add-section	OK
+rename-section	OK
+remove-section	OK
+collapse-sections	OK
+expand-sections	OK
+font-color-last	OK
+font-grow	OK
+font-shrink	OK
+clear-formatting	OK
+bold	OK
+italic	OK
+underline	OK
+text-shadow	OK
+strike	OK
+spacing:-3	OK
+spacing:-1.5	OK
+spacing:0	OK
+spacing:3	OK
+spacing:6	OK
+case:sentence	OK
+case:lower	OK
+case:upper	OK
+case:title	OK
+case:toggle	OK
+highlight-last	OK
+font-dialog	OK
+bullets	OK
+bullets:none	OK
+bullets:char:•	OK
+bullets:char:o|Courier New	OK
+bullets:char:▪	OK
+bullets:char:q|Wingdings	OK
+bullets:char:★	OK
+bullets:char:➢	OK
+bullets:char:✔	OK
+numbering	OK
+numbering:none	OK
+numbering:arabicPeriod	OK
+numbering:arabicParenR	OK
+numbering:romanUcPeriod	OK
+numbering:alphaUcPeriod	OK
+numbering:alphaLcParenR	OK
+numbering:alphaLcPeriod	OK
+numbering:romanLcPeriod	OK
+level-down	OK
+level-up	OK
+line-spacing:1.0	OK
+line-spacing:1.5	OK
+line-spacing:2.0	OK
+line-spacing:2.5	OK
+line-spacing:3.0	OK
+align:l	OK
+align:ctr	OK
+align:r	OK
+align:just	OK
+columns:1	OK
+columns:2	OK
+columns:3	OK
+text-direction:horz	OK
+text-direction:vert	OK
+text-direction:vert270	OK
+text-direction:wordArtVert	OK
+anchor:t	OK
+anchor:ctr	OK
+anchor:b	OK
+not-available:Convert to SmartArt	NOT_YET
+paragraph-dialog	OK
+order:front	OK
+order:back	OK
+order:forward	OK
+order:backward	OK
+group	OK
+ungroup	OK
+align-obj:left	OK
+align-obj:center	OK
+align-obj:right	OK
+align-obj:top	OK
+align-obj:middle	OK
+align-obj:bottom	OK
+align-obj:dist-h	OK
+align-obj:dist-v	OK
+align-to:slide	OK
+align-to:objects	OK
+rotate:90	OK
+rotate:-90	OK
+flip:v	OK
+flip:h	OK
+selection-pane	OK
+shape-fill-last	OK
+shape-outline-last	OK
+shape-shadow:on	OK
+shape-shadow:off	OK
+find	OK
+replace	OK
+select-all	OK
+select-objects	OK
+insert-table	OK
+insert-picture	OK
+screenshot	OK
+photo-album	OK
+not-available:Icons	NOT_YET
+not-available:SmartArt	NOT_YET
+not-available:Insert Chart	NOT_YET
+insert-link	OK
+not-available:Comments	NOT_YET
+draw-textbox	OK
+header-footer	OK
+wordart	OK
+insert-date	OK
+insert-slide-number	OK
+not-available:Insert Object	NOT_YET
+not-available:Equations	NOT_YET
+insert-symbol	OK
+not-available:Video	NOT_YET
+not-available:Audio	NOT_YET
+pointer	OK
+not-available:Ink on slides	NOT_YET
+not-available:Ink to Shape	NOT_YET
+not-available:Themes	NOT_YET
+not-available:Theme variants	NOT_YET
+slide-size:4:3	OK
+slide-size:16:9	OK
+slide-size:custom	OK
+format-background	OK
+not-available:Transitions	NOT_YET
+not-available:Animations	NOT_YET
+not-available:Animation Pane	NOT_YET
+not-available:Custom Slide Shows	NOT_YET
+toggle-presenter-view	OK
+setup-show	OK
+hide-slide	OK
+not-available:Rehearse Timings	NOT_YET
+not-available:Recording	NOT_YET
+not-available:Screen Recording	NOT_YET
+not-available:Create a Video	NOT_YET
+spelling	OK
+not-available:Thesaurus	NOT_YET
+accessibility	OK
+view-normal	OK
+view-outline	OK
+view-sorter	OK
+view-notes-page	OK
+view-reading	OK
+not-available:Slide Master view	NOT_YET
+not-available:Handout Master view	NOT_YET
+not-available:Notes Master view	NOT_YET
+toggle-ruler	OK
+toggle-grid	OK
+toggle-guides	OK
+toggle-notes	OK
+zoom-dialog	OK
+zoom-fit	OK
+new-window	OK
+not-available:Arrange All	NOT_YET
+not-available:Macros	NOT_YET
+shortcuts	OK
+about	OK
+format-shape	OK
+change-picture	OK
+not-available:Reset Picture	NOT_YET
+not-available:Crop	NOT_YET
+set-layout:ppt/slideLayouts/slideLayout2.xml	OK
+new-slide-layout:ppt/slideLayouts/slideLayout6.xml	OK
+draw-shape:ellipse	OK
+shape-fill:FF0000	OK
+shape-outline:00FF00	OK
+font-color:0000FF	OK
+highlight:FFFF00	OK
+font-name:DejaVu Sans	OK
+font-size:30	OK
+size-w:2.5	OK
+size-h:1.5	OK

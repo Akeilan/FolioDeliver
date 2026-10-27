@@ -1,0 +1,21 @@
+/* Folio Deliver: the parts of the window the other apps don't have. */
+.folio-slidepane { background: #f3f3f3; border-right: 1px solid #d6d6d6; }
+.folio-canvas, .folio-canvas viewport { background: #e6e6e6; }
+.folio-notes, .folio-notes text { background: #ffffff; color: #262626; font-size: 11pt; }
+.folio-shapecell { min-width: 22px; min-height: 22px; padding: 1px; border-radius: 0; }
+.folio-shapecell:hover { background: #fff1e3; }
+.folio-layoutcell { padding: 3px; border-radius: 0; border: 1px solid transparent; }
+.folio-layoutcell:hover { background: #fff1e3; border-color: #f0b27a; }
+.folio-layoutcell label { color: #262626; font-size: 8.5pt; }
+.folio-presenter { background: #262626; }
+.folio-presenter label { color: #e8e8e8; }
+.folio-presenter-bar { background: #1c1c1c; padding: 4px; }
+.folio-presenter-timer { font-size: 18pt; font-weight: bold; color: #ffffff; }
+.folio-presenter-notes, .folio-presenter-notes text { background: #262626; color: #f2f2f2; }
+.folio-presenter button { background: #3a3a3a; color: #f2f2f2; border-color: #555555; background-image: none; }
+.folio-presenter button:hover { background: #4a4a4a; }
+.folio-presenter button label { color: #f2f2f2; }
+.folio-notes-hint { color: #7a7a7a; font-size: 11pt; }
+.folio-notes text { caret-color: #1a1a1a; }
+.folio-status scale slider { background: #ffffff; border: 1px solid #8a8a8a; min-width: 12px; min-height: 12px; }
+.folio-status scale trough { background: #c8c8c8; min-height: 3px; }

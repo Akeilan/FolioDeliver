@@ -1,0 +1,5 @@
+engine/target/
+__pycache__/
+*.pyc
+*.deb
+vendor/folio_core/target/
