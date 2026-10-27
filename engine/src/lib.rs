@@ -5,5 +5,6 @@ pub mod scene;
 pub mod text;
 pub mod render;
 pub mod edit;
+pub mod edit2;
 #[cfg(feature = "python")]
 pub mod py;

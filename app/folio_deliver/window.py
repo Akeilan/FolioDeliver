@@ -12,6 +12,7 @@ from .backstage import Backstage
 from .canvas import SlideCanvas
 from .core import Presentation, surface_from
 from .dialogs import Dialogs
+from .more_ui import MoreCommands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -26,7 +27,7 @@ CT_MAIN = {
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(Gtk.ApplicationWindow):
+class DeliverWindow(MoreCommands, Gtk.ApplicationWindow):
     def __init__(self, app, path=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
@@ -161,7 +162,7 @@ class DeliverWindow(Gtk.ApplicationWindow):
             self.qat.remove(c)
         for key, icon, tip in self.QAT:
             b = Gtk.Button()
-            b.add(icons.white_image(icon, 16))
+            b.add(icons.dark_image(icon, 16))
             b.set_tooltip_text(tip)
             b.set_focus_on_click(False)
             b.connect("clicked", lambda _b, k=key: self.run(k))
@@ -265,8 +266,10 @@ class DeliverWindow(Gtk.ApplicationWindow):
         self.pane.relayout()
         self.sorter.relayout()
         self._show_notes()
+        self.sync_theme_palette()
         self.update_title()
         self.selection_changed()
+        self._sync_transition()
         self.status.set_slide(self.current, self.deck.slide_count())
 
     def doc_name(self):
@@ -323,9 +326,6 @@ class DeliverWindow(Gtk.ApplicationWindow):
         else:
             self.canvas.area.grab_focus()
 
-    def sections(self):
-        return {}
-
     def go_slide(self, i, keep_selection=False):
         n = self.deck.slide_count()
         if n == 0:
@@ -349,6 +349,7 @@ class DeliverWindow(Gtk.ApplicationWindow):
         self._show_notes()
         self.status.set_slide(i, n)
         self.selection_changed()
+        self._sync_transition()
 
     def changed(self, slide=False, structure=False, text=False, all_slides=False):
         """After an edit: redraw what it touched."""
@@ -378,8 +379,14 @@ class DeliverWindow(Gtk.ApplicationWindow):
         shapes = [s for s in shapes if s]
         any_shape = bool(shapes)
         pics = shapes and all(s["kind"] == "pic" for s in shapes)
-        self.ribbon.show_contextual("Shape Format", any_shape and not pics)
+        tables = shapes and all(s["geom"] == "table" for s in shapes)
+        self.ribbon.show_contextual("Shape Format", any_shape and not pics and not tables)
         self.ribbon.show_contextual("Picture Format", bool(pics))
+        self.ribbon.show_contextual("Table Design", bool(tables))
+        self.ribbon.show_contextual("Table Layout", bool(tables))
+        if tables and len(shapes) == 1:
+            for key in ("firstRow", "lastRow", "bandRow", "firstCol", "lastCol", "bandCol"):
+                self.ribbon.update("tbl-" + key, "true" if self.deck.table_option_value(self.current, shapes[0]["id"], key) else "false")
         if len(shapes) == 1:
             for sp in getattr(self, "size_spins", []):
                 sp.show_value((shapes[0]["h"] if sp.which == "h" else shapes[0]["w"]) / 72.0)
@@ -774,10 +781,6 @@ class DeliverWindow(Gtk.ApplicationWindow):
         self.changed(structure=True)
         self.go_slide(at)
 
-    def act_add_section(self):
-        self.not_available("not-available:Sections")
-
-    act_rename_section = act_remove_section = act_collapse_sections = act_expand_sections = act_add_section
 
     # views
     def set_view(self, view):
@@ -1110,14 +1113,8 @@ class DeliverWindow(Gtk.ApplicationWindow):
     def act_photo_album(self):
         self.not_available("not-available:Photo Album")
 
-    def act_insert_table(self):
-        self.not_available("not-available:Tables")
-
     def act_insert_link(self):
         self.not_available("not-available:Links")
-
-    def act_header_footer(self):
-        self.not_available("not-available:Header & Footer")
 
     def act_change_picture(self):
         self.not_available("not-available:Change Picture")
@@ -1446,9 +1443,6 @@ class DeliverWindow(Gtk.ApplicationWindow):
 
     def act_size_h(self, v):
         self._size("h", v)
-
-    def act_slide_size(self, v):
-        self.not_available("not-available:Slide Size")
 
     # review
     def act_spelling(self):

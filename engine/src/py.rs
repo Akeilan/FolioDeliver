@@ -50,9 +50,19 @@ impl PyPresentation {
             }
         }
         let ctx = scene::context(&mut self.deck, &part);
-        let n = self.deck.find_shape(&part, id).ok_or_else(|| err("no such shape"))?;
+        let (sid, cell) = crate::edit::split_tid(id);
+        let n = self.deck.find_shape(&part, sid).ok_or_else(|| err("no such shape"))?;
         let (x, y, w, h, rot, _, _) = scene::shape_box(&mut self.deck, &ctx, &part, n);
         let dom = self.deck.pkg.xml(&part).map_err(err)?.clone();
+        let env = Env { slide_num: i + 1, date: chrono::Local::now().format("%-m/%-d/%Y").to_string(), font_scale: 1.0, spc_reduction: 0.0 };
+        if let Some(k) = cell {
+            let tbl = crate::model::path(&dom, n, &["a:graphic", "a:graphicData", "a:tbl"]).ok_or_else(|| err("not a table"))?;
+            let cells = self.painter.table_cells(&mut self.deck, &ctx, &dom, tbl, &env);
+            let cb = cells.into_iter().find(|c| c.index == k).ok_or_else(|| err("no such cell"))?;
+            let bx = (x + cb.x, y + cb.y, cb.w, cb.h, rot);
+            self.cache = Some((part, id, self.deck.version, cb.lay.clone(), bx));
+            return Ok((cb.lay, bx));
+        }
         let lay = match dom.child(n, "p:txBody") {
             Some(tb) => {
                 let num = i + 1;
@@ -364,10 +374,21 @@ impl PyPresentation {
         let d = PyDict::new_bound(py);
         let part = self.deck.slide_part(i).map_err(err)?;
         let ctx = scene::context(&mut self.deck, &part);
-        let n = self.deck.find_shape(&part, id).ok_or_else(|| err("no such shape"))?;
-        let levels = scene::text_levels(&mut self.deck, &ctx, &part, n);
+        let (sid, cell) = crate::edit::split_tid(id);
+        let n = self.deck.find_shape(&part, sid).ok_or_else(|| err("no such shape"))?;
+        let levels = if cell.is_some() {
+            let pres = self.deck.pres.clone();
+            let lv = self.deck.pkg.xml(&pres).ok().and_then(|d| d.child(d.root, "p:defaultTextStyle").map(|t| scene::read_levels(d, t, &ctx.scheme)));
+            crate::render::cell_levels(&lv.unwrap_or_default(), &ctx, false, false, true)
+        } else {
+            scene::text_levels(&mut self.deck, &ctx, &part, n)
+        };
         let dom = self.deck.pkg.xml(&part).map_err(err)?.clone();
-        if let Some(tb) = dom.child(n, "p:txBody") {
+        let tb = match cell {
+            Some(k) => crate::edit::cell_node(&dom, n, k).and_then(|tc| dom.child(tc, "a:txBody")),
+            None => dom.child(n, "p:txBody"),
+        };
+        if let Some(tb) = tb {
             let paras = crate::text::read_paras(&dom, tb, &levels, &ctx.scheme, &Env::default());
             if let Some(p) = paras.get(para) {
                 d.set_item("algn", p.props.algn.clone().unwrap_or_else(|| "l".into()))?;
@@ -527,6 +548,108 @@ impl PyPresentation {
 
     fn rename_shape(&mut self, i: usize, id: u32, name: &str) -> PyResult<()> {
         self.deck.rename_shape(i, id, name).map_err(err)
+    }
+
+    // --------------------------------------------------------- tables
+    #[staticmethod]
+    fn cell_id(id: u32, cell: usize) -> u32 {
+        crate::edit::cell_tid(id, cell)
+    }
+
+    #[staticmethod]
+    fn split_id(tid: u32) -> (u32, Option<usize>) {
+        crate::edit::split_tid(tid)
+    }
+
+    fn add_table(&mut self, i: usize, rows: usize, cols: usize, x: f64, y: f64, w: f64) -> PyResult<u32> {
+        self.deck.add_table(i, rows, cols, x, y, w).map_err(err)
+    }
+
+    /// Cells of a table on slide i: [(cell index, row, col, x, y, w, h)] in slide points.
+    fn table_cells(&mut self, i: usize, id: u32) -> PyResult<Vec<(usize, usize, usize, f64, f64, f64, f64)>> {
+        let part = self.deck.slide_part(i).map_err(err)?;
+        let ctx = scene::context(&mut self.deck, &part);
+        let n = self.deck.find_shape(&part, id).ok_or_else(|| err("no such shape"))?;
+        let (x, y, ..) = scene::shape_box(&mut self.deck, &ctx, &part, n);
+        let dom = self.deck.pkg.xml(&part).map_err(err)?.clone();
+        let Some(tbl) = crate::model::path(&dom, n, &["a:graphic", "a:graphicData", "a:tbl"]) else { return Ok(Vec::new()) };
+        let env = Env { slide_num: i + 1, date: String::new(), font_scale: 1.0, spc_reduction: 0.0 };
+        let cells = self.painter.table_cells(&mut self.deck, &ctx, &dom, tbl, &env);
+        Ok(cells.into_iter().map(|c| (c.index, c.row, c.col, x + c.x, y + c.y, c.w, c.h)).collect())
+    }
+
+    fn table_size(&mut self, i: usize, id: u32) -> Option<(usize, usize)> {
+        self.deck.table_size(i, id)
+    }
+
+    fn table_insert_row(&mut self, i: usize, id: u32, at: usize) -> PyResult<()> {
+        self.deck.table_insert_row(i, id, at).map_err(err)
+    }
+
+    fn table_insert_col(&mut self, i: usize, id: u32, at: usize) -> PyResult<()> {
+        self.deck.table_insert_col(i, id, at).map_err(err)
+    }
+
+    fn table_delete_row(&mut self, i: usize, id: u32, row: usize) -> PyResult<bool> {
+        self.deck.table_delete_row(i, id, row).map_err(err)
+    }
+
+    fn table_delete_col(&mut self, i: usize, id: u32, col: usize) -> PyResult<bool> {
+        self.deck.table_delete_col(i, id, col).map_err(err)
+    }
+
+    fn table_option(&mut self, i: usize, id: u32, key: &str, on: bool) -> PyResult<()> {
+        self.deck.table_option(i, id, key, on).map_err(err)
+    }
+
+    fn table_option_value(&mut self, i: usize, id: u32, key: &str) -> bool {
+        self.deck.table_option_value(i, id, key)
+    }
+
+    fn table_shade(&mut self, i: usize, id: u32, cells: Vec<usize>, spec: &str) -> PyResult<()> {
+        self.deck.table_shade(i, id, &cells, spec).map_err(err)
+    }
+
+    // --------------------------------------------------------- slides: footer, size, sections, transitions, theme
+    #[pyo3(signature = (idx, date, number, footer, skip_title))]
+    fn set_header_footer(&mut self, idx: Vec<usize>, date: Option<&str>, number: bool, footer: Option<&str>, skip_title: bool) -> PyResult<()> {
+        self.deck.set_header_footer(&idx, date, number, footer, skip_title).map_err(err)
+    }
+
+    fn header_footer(&mut self, i: usize) -> (bool, String, bool, bool, String) {
+        self.deck.header_footer(i)
+    }
+
+    fn set_slide_size(&mut self, w: f64, h: f64, mode: &str) -> PyResult<()> {
+        self.deck.set_slide_size(w, h, mode).map_err(err)
+    }
+
+    fn sections(&mut self) -> Vec<(String, usize, usize)> {
+        self.deck.sections()
+    }
+
+    #[pyo3(signature = (secs, label="Section"))]
+    fn write_sections(&mut self, secs: Vec<(String, usize)>, label: &str) -> PyResult<()> {
+        self.deck.write_sections(&secs, label).map_err(err)
+    }
+
+    fn transition(&mut self, i: usize) -> (String, String, f64, bool, f64) {
+        self.deck.transition(i)
+    }
+
+    fn set_transition(&mut self, idx: Vec<usize>, kind: &str, opt: &str, dur: f64, click: bool, after: f64) -> PyResult<()> {
+        self.deck.set_transition(&idx, kind, opt, dur, click, after).map_err(err)
+    }
+
+    fn theme_info(&mut self) -> (Vec<(String, u32)>, String, String) {
+        self.deck.theme_info()
+    }
+
+    #[pyo3(signature = (name=None, colors=None, major=None, minor=None))]
+    fn set_theme(&mut self, name: Option<&str>, colors: Option<Vec<u32>>, major: Option<&str>, minor: Option<&str>) -> PyResult<()> {
+        let r = self.deck.set_theme(name, colors.as_deref(), major, minor).map_err(err);
+        self.painter.forget_pictures();
+        r
     }
 
     fn set_notes(&mut self, i: usize, text: &str) -> PyResult<()> {

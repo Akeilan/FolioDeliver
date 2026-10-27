@@ -220,6 +220,8 @@ impl Deck {
                 None => self.pkg.remove(name),
             }
         }
+        // the slide size may have changed with the presentation part
+        self.read_slides();
         self.slides = s.slides.clone();
         self.version += 1;
     }

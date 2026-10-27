@@ -1,49 +1,49 @@
-/* Folio Deliver — dark mode, used when the desktop is set to dark (S-08). Excel-like: the chrome
-   goes dark, the cells keep their own colours. Loaded after theme.css and sheets.css. */
+/* Folio Deliver — dark mode, used when the desktop is set to dark (S-08). The chrome goes dark,
+   the slides keep their own colours. Loaded after theme.css and deliver.css. */
 @define-color ribbon_bg #2b2b2b;
 @define-color ribbon_fg #f0f0f0;
 @define-color ribbon_line #404040;
 @define-color caption_fg #b0b0b0;
 @define-color hover_bg #3d3d3d;
 @define-color press_bg #4a4a4a;
-@define-color checked_bg #4f4220;
+@define-color checked_bg #5a3a1a;
 @define-color canvas_bg #1f1f1f;
 @define-color status_bg #2b2b2b;
 @define-color status_fg #d0d0d0;
 @define-color backstage_bg #1f1f1f;
 
-.folio-tab.active { color: #e8c35a; border-bottom-color: #d1a32a; }
-.folio-tab.contextual { color: #f0b060; }
-.folio-btn:checked, .folio-btn.checked { border-color: #8a7330; }
+.folio-tab.active { color: #ffa84d; border-bottom-color: #ff8200; }
+.folio-tab.contextual { color: #ffb870; }
+.folio-btn:checked, .folio-btn.checked { border-color: #a0622a; }
 .folio-btn label, .folio-caption { color: @ribbon_fg; }
 .folio-caption { color: @caption_fg; }
 .folio-combo entry, .folio-gallery, .folio-style { background: #333333; color: #f0f0f0; }
-.folio-style:hover { background: #3d3d3d; border-color: #8a7330; }
-.folio-style.current { background: #463c22; }
+.folio-style:hover { background: #3d3d3d; border-color: #a0622a; }
+.folio-style.current { background: #4a3420; }
 .folio-keytip { background: #f0f0f0; color: #1f1f1f; border-color: #ffffff; }
 
 .folio-bs-body { background: #1f1f1f; }
 .folio-bs-title, .folio-bs-cardtitle, .folio-backstage label { color: #f0f0f0; }
 .folio-bs-tile:hover, .folio-bs-list row:hover, .folio-bs-place:hover { background: #333333; border-color: #555555; }
 .folio-bs-card button, .folio-bs-printbtn { background: #2b2b2b; border-color: #555555; color: #f0f0f0; }
-.folio-bs-card button:hover, .folio-bs-printbtn:hover { background: #3a3a3a; border-color: #8a7330; }
+.folio-bs-card button:hover, .folio-bs-printbtn:hover { background: #3a3a3a; border-color: #a0622a; }
 .folio-bs-propentry:hover, .folio-bs-propentry:focus { background: #2b2b2b; border-color: #555555; }
 .folio-bs-preview { background: #262626; border-left-color: #404040; }
-.folio-backstage link, .folio-backstage button.link { color: #e8c35a; }
+.folio-backstage link, .folio-backstage button.link { color: #ffa84d; }
 
 .folio-pane-slot, .folio-pane, .folio-pane treeview, .folio-pane list, .folio-pane list row { background: #252525; color: #f0f0f0; }
 .folio-pane label, .folio-pane-title { color: #f0f0f0; }
-.folio-pane treeview:selected { background: #4f4220; color: #ffffff; }
+.folio-pane treeview:selected { background: #5a3a1a; color: #ffffff; }
 .folio-pane list row:hover { background: #333333; }
 .folio-comment-card { background: #2e2a22; }
-.folio-navtabs button:checked { color: #e8c35a; border-bottom-color: #d1a32a; }
+.folio-navtabs button:checked { color: #ffa84d; border-bottom-color: #ff8200; }
 
 .folio-dialog, .folio-dialog notebook header, .folio-dialog notebook stack { background: #2b2b2b; }
 .folio-dialog notebook header { border-bottom-color: #404040; }
 .folio-dialog treeview { background: #222222; color: #f0f0f0; }
-.folio-dialog treeview:selected { background: #4f4220; color: #ffffff; }
+.folio-dialog treeview:selected { background: #5a3a1a; color: #ffffff; }
 .folio-charmap, .folio-symbol, .folio-symcell { background: #2b2b2b; color: #f0f0f0; border-color: #404040; }
-.folio-symbol:hover, .folio-symcell:hover, .folio-eq-item:hover { background: #3a3a3a; border-color: #8a7330; }
+.folio-symbol:hover, .folio-symcell:hover, .folio-eq-item:hover { background: #3a3a3a; border-color: #a0622a; }
 .folio-gallery-head { background: #333333; color: #d0d0d0; }
 .folio-gridcell { background: #2b2b2b; border-color: #555555; }
 .folio-eqbar { background: #262626; }
@@ -62,10 +62,26 @@ textview.folio-formula, textview.folio-formula text { background: #1f1f1f; color
 .folio-tabnav, .folio-tabadd { color: #d0d0d0; }
 button.folio-sheettab { color: #e0e0e0; border-right-color: #404040; }
 button.folio-sheettab:hover { background: #3a3a3a; }
-button.folio-sheettab.active { background: #1f1f1f; color: #e8c35a; border-bottom-color: #d1a32a; }
+button.folio-sheettab.active { background: #1f1f1f; color: #ffa84d; border-bottom-color: #ff8200; }
 .folio-popup { background: #2b2b2b; }
 .folio-popup frame > border { border-color: #555555; }
 popover, popover.background { background-color: #2b2b2b; color: #f0f0f0; }
 popover label { color: #f0f0f0; }
 menu, .menu, .context-menu { background-color: #2b2b2b; color: #f0f0f0; }
-menu menuitem:hover { background: #4f4220; }
+menu menuitem:hover { background: #5a3a1a; }
+
+/* the light-chrome rules in theme.css force dark text for light desktops' sake; in Deliver's own
+   dark mode the ribbon is dark, so its text goes light again */
+.folio-ribbon, .folio-tabs, .folio-status, .folio-ribbon label, .folio-tabs label, .folio-status label,
+.folio-ribbon checkbutton label, .folio-ribbon radiobutton label, .folio-ribbon checkbutton { color: #f0f0f0; }
+.folio-tab.active, .folio-tab.active label { color: #ffa84d; }
+.folio-tab.contextual, .folio-tab.contextual label { color: #ffb870; }
+.folio-ribbon entry, .folio-ribbon spinbutton, .folio-ribbon spinbutton entry, .folio-ribbon combobox entry,
+.folio-combo entry, .folio-status entry { color: #f0f0f0; background-color: #333333; caret-color: #f0f0f0; border-color: #555555; }
+.folio-ribbon combobox button, .folio-combo button, .folio-ribbon spinbutton button { color: #f0f0f0; background-color: #333333; border-color: #555555; }
+.folio-slidepane { background: #262626; border-right-color: #404040; }
+.folio-notes, .folio-notes text { background: #262626; color: #f0f0f0; }
+.folio-notes-hint { color: #9a9a9a; }
+.folio-ribbon .folio-combo button, .folio-ribbon .folio-combo entry, .folio-ribbon combobox box button,
+.folio-ribbon .folio-combo box button { color: #f0f0f0; background: #333333; border-color: #555555; }
+.folio-ribbon .folio-combo button:hover { background: #3d3d3d; }
