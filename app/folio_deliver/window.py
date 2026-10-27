@@ -12,7 +12,7 @@ from .backstage import Backstage
 from .canvas import SlideCanvas
 from .core import Presentation, surface_from
 from .dialogs import Dialogs
-from .more_ui import MoreCommands
+from .more_ui import AnimationCommands, MoreCommands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -27,7 +27,7 @@ CT_MAIN = {
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(MoreCommands, Gtk.ApplicationWindow):
+class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def __init__(self, app, path=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
@@ -76,6 +76,7 @@ class DeliverWindow(MoreCommands, Gtk.ApplicationWindow):
         self.overlay.add(self.outer)
         self.ribbon = Ribbon(self.run, self.focus_document)
         self.ribbon.connect("file-clicked", lambda *_: self.show_backstage())
+        self.anim_pick = None
         self.outer.pack_start(self.ribbon, False, False, 0)
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
@@ -128,6 +129,12 @@ class DeliverWindow(MoreCommands, Gtk.ApplicationWindow):
 
         from .ribbon_defs import build_ribbon
         build_ribbon(self)
+        _select = self.ribbon.select
+
+        def select_tab(tab):
+            _select(tab)
+            self.canvas.queue()
+        self.ribbon.select = select_tab
         self.backstage = Backstage(self)
         self.overlay.add_overlay(self.backstage)
         from .keytips import KeyTips
@@ -391,6 +398,16 @@ class DeliverWindow(MoreCommands, Gtk.ApplicationWindow):
             for sp in getattr(self, "size_spins", []):
                 sp.show_value((shapes[0]["h"] if sp.which == "h" else shapes[0]["w"]) / 72.0)
         self._sync_ribbon()
+        try:
+            if self.anim_pick is not None:
+                fx = self.deck.animations(self.current)
+                if self.anim_pick >= len(fx) or (c.sel and fx[self.anim_pick]["spid"] not in c.sel):
+                    self.anim_pick = None
+            self.sync_animation()
+        except Exception:
+            pass
+        if getattr(self, "anim_painter_fx", None) and len(c.sel) == 1 and c.edit is None:
+            self.apply_anim_painter(c.sel[0])
         # the format painter applies to the next text selection or object
         if self.painter_props and (c.edit is not None and c.edit.has_selection() or (any_shape and c.edit is None)):
             props = self.painter_props

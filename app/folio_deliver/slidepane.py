@@ -241,6 +241,8 @@ class SlidePane(Gtk.Box):
                 continue
             try:
                 kind = deck.transition(i)[0]
+                if kind == "none" and deck.animations(i):
+                    kind = "anim"
             except Exception:
                 kind = "none"
             if kind != "none":

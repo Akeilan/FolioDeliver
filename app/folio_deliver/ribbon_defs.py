@@ -620,11 +620,27 @@ def build_ribbon(win):
     r.add_tab(t)
 
     # ================================================================ Animations
+    from .more_ui import ENTRANCE, EMPHASIS, EXIT
     t = r.building(Tab("Animations", "A"))
-    B.group(t, "Preview", [B.big("Preview", "presentationcurrentslide", na("Animations"), "P")])
-    B.group(t, "Animation", [B.big("Appear", "animationeffects", na("Animations"), "S")])
-    B.group(t, "Advanced Animation", [B.big("Add Animation", "animationeffects", na("Animations"), "AA"),
-                                      [B.small("Animation Pane", "animationeffects", na("Animation Pane"), "C")]])
+    B.group(t, "Preview", [B.big("Preview", "presentationcurrentslide", "anim-preview", "P")])
+    gallery = [RibbonButton(r, "None", "r-clear-sm", "anim:none", size="large", state="an-none", keytip="N0")]
+    for k, (p, n) in enumerate(ENTRANCE[:8]):
+        gallery.append(RibbonButton(r, n, "animationeffects", "anim:entr-%d" % p, size="large", state="an-entr-%d" % p,
+                                    keytip="E%d" % k, tooltip=n + " (entrance)"))
+    gallery.append(B.big("More Effects", "animationeffects", None, "AM", menu=win.anim_menu()))
+    B.group(t, "Animation", gallery + [MenuButton(r, "Effect Options", "r-effects-sm", lambda: _menu_pop(B, win.anim_options_menu()),
+                                                  size="large", keytip="EO")])
+    B.group(t, "Advanced Animation", [B.big("Add Animation", "animationeffects", None, "AA", menu=win.anim_menu(add=True)),
+                                      [B.small("Animation Pane", "animationeffects", "anim-pane", "C"),
+                                       B.small("Trigger", "r-macros", "anim-trigger", "TR"),
+                                       B.small("Animation Painter", "r-format-painter-sm", "anim-painter", "PA")]])
+    win.anim_start_combo = AnimStart(win)
+    win.anim_dur_spin = TimeSpin(win, "anim-duration", 0.01, 59, 0.5)
+    win.anim_delay_spin = TimeSpin(win, "anim-delay", 0, 59, 0.0)
+    B.group(t, "Timing", [[_labelled("Start:", win.anim_start_combo), _labelled("Duration:", win.anim_dur_spin),
+                           _labelled("Delay:", win.anim_delay_spin)],
+                          [B.small("Move Earlier", "r-bring-forward-sm", "anim-earlier", "ME"),
+                           B.small("Move Later", "r-send-backward-sm", "anim-later", "ML")]])
     r.add_tab(t)
 
     # ================================================================ Slide Show
@@ -825,3 +841,15 @@ class TimeSpin(Gtk.SpinButton):
     def _changed(self, *_):
         if not self.quiet:
             self.win.run("%s:%.2f" % (self.cmd, self.get_value()))
+
+
+class AnimStart(Gtk.ComboBoxText):
+    """Animations > Timing > Start: On Click, With Previous, After Previous."""
+    def __init__(self, win):
+        Gtk.ComboBoxText.__init__(self)
+        self.win = win
+        self.quiet = False
+        for k, t in (("click", "On Click"), ("with", "With Previous"), ("after", "After Previous")):
+            self.append(k, t)
+        self.set_active_id("click")
+        self.connect("changed", lambda c: None if self.quiet else win.run("anim-start:" + c.get_active_id()))

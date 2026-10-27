@@ -135,9 +135,19 @@ impl PyPresentation {
     }
 
     /// Render slide i at `scale` px per point: (w, h, stride, ARGB32 bytes, shapes).
-    #[pyo3(signature = (i, scale, edit=true))]
-    fn render<'py>(&mut self, py: Python<'py>, i: usize, scale: f64, edit: bool)
+    /// `anim`: shape id -> (alpha, dx, dy, sx, sy, rot, hidden, clip direction, clip amount),
+    /// how the show's animations have each shape at this moment.
+    #[pyo3(signature = (i, scale, edit=true, anim=None))]
+    fn render<'py>(&mut self, py: Python<'py>, i: usize, scale: f64, edit: bool,
+                   anim: Option<std::collections::HashMap<u32, (f64, f64, f64, f64, f64, f64, bool, String, f64)>>)
                    -> PyResult<(i32, i32, i32, Bound<'py, PyBytes>, Vec<Bound<'py, PyDict>>)> {
+        let mut opts = Opts { edit, hide: None, ..Default::default() };
+        if let Some(a) = anim {
+            for (id, (alpha, dx, dy, sx, sy, rot, hidden, cd, cf)) in a {
+                opts.anim.insert(id, crate::render::Anim { alpha, dx, dy, sx, sy, rot, hidden,
+                                                         clip: if cd.is_empty() { None } else { Some((cd, cf)) } });
+            }
+        }
         let part = self.deck.slide_part(i).map_err(err)?;
         let (w, h) = self.size();
         let pw = ((w * scale).round() as i32).max(1);
@@ -146,7 +156,7 @@ impl PyPresentation {
         let infos = {
             let cr = cairo::Context::new(&surf).map_err(err)?;
             cr.scale(scale, scale);
-            self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit, hide: None })
+            self.painter.draw(&mut self.deck, &part, &cr, &opts)
         };
         surf.flush();
         let stride = surf.stride();
@@ -162,7 +172,7 @@ impl PyPresentation {
         let surf = cairo::ImageSurface::create(cairo::Format::A8, 1, 1).map_err(err)?;
         let cr = cairo::Context::new(&surf).map_err(err)?;
         cr.scale(0.001, 0.001);
-        let infos = self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: true, hide: None });
+        let infos = self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: true, hide: None, ..Default::default() });
         infos.iter().map(|s| info_dict(py, s)).collect()
     }
 
@@ -178,7 +188,7 @@ impl PyPresentation {
                     continue;
                 }
                 let part = self.deck.slides[i].clone();
-                self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: false, hide: None });
+                self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: false, hide: None, ..Default::default() });
                 cr.show_page().map_err(err)?;
             }
         }
@@ -195,7 +205,7 @@ impl PyPresentation {
         {
             let cr = cairo::Context::new(&surf).map_err(err)?;
             cr.scale(scale, scale);
-            self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: false, hide: None });
+            self.painter.draw(&mut self.deck, &part, &cr, &Opts { edit: false, hide: None, ..Default::default() });
         }
         let mut f = std::fs::File::create(path).map_err(err)?;
         surf.write_to_png(&mut f).map_err(err)?;
@@ -228,7 +238,7 @@ impl PyPresentation {
         {
             let cr = cairo::Context::new(&surf).map_err(err)?;
             cr.scale(scale, scale);
-            self.painter.draw(&mut self.deck, part, &cr, &Opts { edit: false, hide: None });
+            self.painter.draw(&mut self.deck, part, &cr, &Opts { edit: false, hide: None, ..Default::default() });
         }
         surf.flush();
         let stride = surf.stride();
@@ -650,6 +660,55 @@ impl PyPresentation {
         let r = self.deck.set_theme(name, colors.as_deref(), major, minor).map_err(err);
         self.painter.forget_pictures();
         r
+    }
+
+    // --------------------------------------------------------- animations
+    /// Slide i's effects: dicts of spid, class, preset, subtype, name, trigger, delay, dur, repeat, index.
+    fn animations<'py>(&mut self, py: Python<'py>, i: usize) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let fx = self.deck.animations(i);
+        fx.iter().enumerate().map(|(k, e)| {
+            let d = PyDict::new_bound(py);
+            d.set_item("index", k)?;
+            d.set_item("spid", e.spid)?;
+            d.set_item("class", &e.class)?;
+            d.set_item("preset", e.preset)?;
+            d.set_item("subtype", e.subtype)?;
+            d.set_item("name", crate::timing::preset_name(&e.class, e.preset))?;
+            d.set_item("trigger", &e.trigger)?;
+            d.set_item("delay", e.delay)?;
+            d.set_item("dur", e.dur)?;
+            d.set_item("repeat", e.repeat)?;
+            Ok(d)
+        }).collect()
+    }
+
+    /// Write slide i's effects: each a dict as `animations` gives (an "index" keeps that effect's
+    /// saved form when its kind is unchanged; without one the effect is written from its preset).
+    #[pyo3(signature = (i, effects, label="Animation"))]
+    fn set_animations(&mut self, i: usize, effects: Vec<Bound<'_, PyDict>>, label: &str) -> PyResult<()> {
+        let old = self.deck.animations(i);
+        let mut out = Vec::new();
+        for d in effects {
+            let get_f = |k: &str, dflt: f64| -> f64 { d.get_item(k).ok().flatten().and_then(|v| v.extract::<f64>().ok()).unwrap_or(dflt) };
+            let get_s = |k: &str, dflt: &str| -> String { d.get_item(k).ok().flatten().and_then(|v| v.extract::<String>().ok()).unwrap_or_else(|| dflt.to_string()) };
+            let class = get_s("class", "entr");
+            let preset = get_f("preset", 10.0) as u32;
+            let subtype = get_f("subtype", 0.0) as u32;
+            let keep = d.get_item("index").ok().flatten().and_then(|v| v.extract::<usize>().ok())
+                .and_then(|k| old.get(k)).filter(|o| o.class == class && o.preset == preset && o.subtype == subtype
+                    && (o.dur - get_f("dur", o.dur)).abs() < 1e-6 && (o.repeat - get_f("repeat", o.repeat)).abs() < 1e-6)
+                .and_then(|o| o.xml.clone());
+            out.push(crate::timing::Effect {
+                spid: get_f("spid", 0.0) as u32, class, preset, subtype, trigger: get_s("trigger", "click"),
+                delay: get_f("delay", 0.0), dur: get_f("dur", 0.5), repeat: get_f("repeat", 1.0), xml: keep,
+            });
+        }
+        self.deck.set_animations(i, &out, label).map_err(err)
+    }
+
+    #[staticmethod]
+    fn animation_presets() -> Vec<(String, u32, String, u32, f64)> {
+        crate::timing::PRESETS.iter().map(|p| (p.0.to_string(), p.1, p.2.to_string(), p.3, p.4)).collect()
     }
 
     fn set_notes(&mut self, i: usize, text: &str) -> PyResult<()> {

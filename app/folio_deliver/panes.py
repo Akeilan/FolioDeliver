@@ -642,3 +642,73 @@ def shortcuts_dialog(win):
     d.show_all()
     d.run()
     d.destroy()
+
+
+# ---------------------------------------------------------------- animation pane
+class AnimationPane(Gtk.Window):
+    """The Animation Pane: the slide's effects in order; pick one to change it, play from it."""
+    def __init__(self, win):
+        Gtk.Window.__init__(self, title="Animation Pane", transient_for=win)
+        self.win = win
+        self.set_default_size(320, 460)
+        self.get_style_context().add_class("folio-pane")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin=8)
+        top = Gtk.Box(spacing=6)
+        play = Gtk.Button(label="▶ Play All")
+        play.connect("clicked", lambda *_: win.run("anim-preview"))
+        top.pack_start(play, False, False, 0)
+        for label, cmd in (("▲", "anim-earlier"), ("▼", "anim-later"), ("Remove", "anim-remove")):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", lambda _b, c=cmd: win.run(c))
+            top.pack_end(b, False, False, 0)
+        box.pack_start(top, False, False, 0)
+        self.store = Gtk.ListStore(int, str, str, str)
+        self.view = Gtk.TreeView(model=self.store)
+        for k, title in ((1, "#"), (2, "Effect"), (3, "Object")):
+            self.view.append_column(Gtk.TreeViewColumn(title, Gtk.CellRendererText(), text=k))
+        self.view.get_selection().connect("changed", self._picked)
+        sw = Gtk.ScrolledWindow()
+        sw.add(self.view)
+        box.pack_start(sw, True, True, 0)
+        self.add(box)
+        self.connect("destroy", lambda *_: setattr(win, "anim_pane", None) or setattr(win, "anim_pick", None))
+        self._quiet = False
+        self.refresh()
+        self.show_all()
+
+    def refresh(self):
+        w = self.win
+        self._quiet = True
+        self.store.clear()
+        names = {s["id"]: s["name"] for s in w.canvas.shapes}
+        n = 0
+        for k, e in enumerate(w.deck.animations(w.current) if w.current is not None else []):
+            if e["trigger"] == "click":
+                n += 1
+            mark = {"entr": "★", "exit": "☆", "emph": "✶"}.get(e["class"], "")
+            num = str(n) if e["trigger"] == "click" else ""
+            self.store.append([k, num, "%s %s" % (mark, e["name"]), names.get(e["spid"], "Object %d" % e["spid"])])
+        if w.anim_pick is not None and w.anim_pick < len(self.store):
+            self.view.get_selection().select_path(w.anim_pick)
+        self._quiet = False
+
+    def _picked(self, sel):
+        if self._quiet:
+            return
+        model, it = sel.get_selected()
+        if it is None:
+            return
+        self.win.anim_pick = model[it][0]
+        e = self.win.deck.animations(self.win.current)[self.win.anim_pick]
+        self.win.canvas.leave_text()
+        self.win.canvas.sel = [e["spid"]]
+        self.win.canvas.queue()
+        self.win.sync_animation()
+
+
+def animation_pane(win):
+    if getattr(win, "anim_pane", None) is not None:
+        win.anim_pane.destroy()
+        win.anim_pane = None
+        return
+    win.anim_pane = AnimationPane(win)

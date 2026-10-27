@@ -87,8 +87,24 @@ pub struct ShapeInfo {
     pub descr: String,
 }
 
+/// How an animation shows a shape at one moment of a slide show.
+#[derive(Clone, Debug)]
+pub struct Anim {
+    pub alpha: f64,
+    pub dx: f64,
+    pub dy: f64,
+    pub sx: f64,
+    pub sy: f64,
+    pub rot: f64,
+    pub hidden: bool,
+    /// a wipe or shape reveal: direction ("up", "down", "left", "right", "in" circle,
+    /// "barnh" / "barnv" split) and how much shows (0..1)
+    pub clip: Option<(String, f64)>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Opts {
+    pub anim: HashMap<u32, Anim>,
     /// draw empty placeholders with their prompt and dashed edge
     pub edit: bool,
     /// a shape whose text is being edited is still drawn; this skips nothing
@@ -210,6 +226,42 @@ impl Painter {
                     continue;
                 }
                 let item = Item { part: p, dom, node: n };
+                let anim = if is_slide { opts.anim.get(&scene::shape_id(dom, n).0).cloned() } else { None };
+                if let Some(a) = &anim {
+                    if a.hidden || a.alpha <= 0.0 {
+                        continue;
+                    }
+                    let (x, y, w, h, ..) = scene::shape_box(deck, &ctx, p, n);
+                    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+                    cr.save().ok();
+                    cr.push_group();
+                    cr.translate(a.dx + cx, a.dy + cy);
+                    cr.rotate(a.rot.to_radians());
+                    cr.scale(a.sx.max(0.0001), a.sy.max(0.0001));
+                    cr.translate(-cx, -cy);
+                    self.draw_item(deck, &ctx, cr, &item, &env, opts, 0, false);
+                    cr.pop_group_to_source().ok();
+                    if let Some((dir, f)) = &a.clip {
+                        let f = f.clamp(0.0, 1.0);
+                        let (bx, by) = (x + a.dx, y + a.dy);
+                        match dir.as_str() {
+                            "up" => cr.rectangle(bx - 2.0, by + h * (1.0 - f), w + 4.0, h * f + 2.0),
+                            "left" => cr.rectangle(bx + w * (1.0 - f), by - 2.0, w * f + 2.0, h + 4.0),
+                            "right" => cr.rectangle(bx - 2.0, by - 2.0, w * f + 2.0, h + 4.0),
+                            "barnh" => cr.rectangle(bx - 2.0, by + h / 2.0 * (1.0 - f), w + 4.0, h * f),
+                            "barnv" => cr.rectangle(bx + w / 2.0 * (1.0 - f), by - 2.0, w * f, h + 4.0),
+                            "in" => {
+                                let r = (w * w + h * h).sqrt() / 2.0 * f;
+                                cr.arc(bx + w / 2.0, by + h / 2.0, r.max(0.01), 0.0, 2.0 * PI);
+                            }
+                            _ => cr.rectangle(bx - 2.0, by - 2.0, w + 4.0, h * f + 2.0),
+                        }
+                        cr.clip();
+                    }
+                    cr.paint_with_alpha(a.alpha.min(1.0)).ok();
+                    cr.restore().ok();
+                    continue;
+                }
                 let info = self.draw_item(deck, &ctx, cr, &item, &env, opts, 0, is_slide);
                 if is_slide {
                     infos.extend(info);
