@@ -1,0 +1,31 @@
+[package]
+name = "deliver_core"
+version = "0.1.0"
+edition = "2021"
+description = "Folio Deliver presentation engine: .pptx model, slide and text layout, rendering and editing"
+license = "MIT"
+
+[lib]
+name = "deliver_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+python = ["dep:pyo3"]
+
+[dependencies]
+folio_core = { path = "../vendor/folio_core" }
+cairo-rs = { version = "0.20", features = ["freetype", "png", "pdf", "v1_16"] }
+freetype-rs = "0.37"
+unicode-linebreak = "0.1"
+unicode-segmentation = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"], optional = true }
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = "thin"
+
+[profile.dev]
+opt-level = 1
