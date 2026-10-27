@@ -1,6 +1,7 @@
 """The slide editing area (Normal view): the slide drawn by the engine, objects selected,
 moved, resized and rotated with the mouse, and text typed in place."""
 import math
+import time
 
 import cairo
 from gi.repository import Gdk, GLib, Gtk
@@ -187,6 +188,22 @@ class SlideCanvas(Gtk.Box):
         cr.set_source_rgba(0, 0, 0, 0.18)
         cr.rectangle(self.ox + 2, self.oy + 2, sw * self.scale, sh * self.scale)
         cr.fill()
+        ap = getattr(self, "anim_play", None)
+        if ap is not None:
+            pl, start = ap
+            t = time.time() - start
+            g = 0
+            while g < len(pl.groups) and t > pl.length(g):
+                t -= pl.length(g)
+                g += 1
+            if g >= len(pl.groups):
+                self.anim_play = None
+            else:
+                w_, h_, stride, data, _ = self.deck.render(self.index, self.scale, False, pl.state(g, g, t))
+                frame = surface_from(w_, h_, stride, data)
+                cr.set_source_surface(frame, round(self.ox), round(self.oy))
+                cr.paint()
+                return
         pv = getattr(self, "preview", None)
         if pv is not None:
             from .show import blend
@@ -210,8 +227,61 @@ class SlideCanvas(Gtk.Box):
             cr.line_to(self.ox + sw * self.scale, y + 0.5)
             cr.stroke()
             cr.set_dash([])
+        cur = getattr(self.win.ribbon, "current", None)
+        if cur is not None and cur.name == "Animations":
+            self._draw_anim_tags(cr)
         self._draw_selection(cr)
         self._draw_drag(cr)
+
+    def play_animation(self, pl):
+        self.anim_play = (pl, time.time())
+
+        def tick():
+            if getattr(self, "anim_play", None) is None:
+                self.queue()
+                return False
+            self.queue()
+            return True
+        GLib.timeout_add(16, tick)
+
+    def _draw_anim_tags(self, cr):
+        """On the Animations tab: each animated object's click numbers beside it."""
+        try:
+            fx = self.deck.animations(self.index)
+        except Exception:
+            return
+        if not fx:
+            return
+        tags = {}
+        n = 0
+        for k, e in enumerate(fx):
+            if e["trigger"] == "click" or k == 0:
+                n += 1 if e["trigger"] == "click" else 0
+            tags.setdefault(e["spid"], [])
+            label = str(n) if n else "0"
+            if label not in tags[e["spid"]]:
+                tags[e["spid"]].append(label)
+        cr.select_font_face("Sans")
+        cr.set_font_size(10)
+        for sid, labs in tags.items():
+            s = self.shape(sid)
+            if s is None:
+                continue
+            x, y = self.to_px(s["x"], s["y"])
+            for j, lab in enumerate(labs):
+                ext = cr.text_extents(lab)
+                bw = max(14, ext.width + 6)
+                bx = x - bw - 3
+                by = y + j * 16
+                cr.set_source_rgb(0.92, 0.92, 0.92)
+                cr.rectangle(bx, by, bw, 14)
+                cr.fill_preserve()
+                cr.set_source_rgb(0.45, 0.45, 0.45)
+                cr.set_line_width(1)
+                cr.stroke()
+                cr.set_source_rgb(0.1, 0.1, 0.1)
+                cr.move_to(bx + (bw - ext.width) / 2, by + 11)
+                cr.show_text(lab)
 
     def _draw_grid(self, cr, sw, sh):
         step = 72.0 / 12 * 2      # 1/6 inch

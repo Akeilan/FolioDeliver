@@ -6,5 +6,6 @@ pub mod text;
 pub mod render;
 pub mod edit;
 pub mod edit2;
+pub mod timing;
 #[cfg(feature = "python")]
 pub mod py;

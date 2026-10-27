@@ -498,3 +498,217 @@ class MoreCommands:
 
 
 TRANSITIONS_BY_KIND = [(k, o) for k, _l, o in TRANSITIONS]
+
+
+# ---------------------------------------------------------------- animations
+ENTRANCE = [(1, "Appear"), (10, "Fade"), (2, "Fly In"), (42, "Float In"), (16, "Split"), (22, "Wipe"), (17, "Shape"),
+            (21, "Wheel"), (14, "Random Bars"), (31, "Grow & Turn"), (53, "Zoom"), (26, "Bounce")]
+EMPHASIS = [(26, "Pulse"), (8, "Spin"), (6, "Grow/Shrink"), (32, "Teeter"), (9, "Transparency")]
+EXIT = [(1, "Disappear"), (10, "Fade"), (2, "Fly Out"), (42, "Float Out"), (22, "Wipe"), (53, "Zoom"), (31, "Shrink & Turn")]
+DIRECTIONS = {2: [("From Bottom", 4), ("From Left", 8), ("From Right", 2), ("From Top", 1)],
+              22: [("From Bottom", 4), ("From Left", 8), ("From Right", 2), ("From Top", 1)],
+              16: [("Horizontal In", 21), ("Vertical In", 26)]}
+
+
+class AnimationCommands:
+    def _anim_defaults(self, cls, preset):
+        for c, p, _n, sub, dur in Presentation.animation_presets():
+            if c == cls and p == preset:
+                return sub, dur
+        return 0, 0.5
+
+    def _anims(self):
+        return [dict(e) for e in self.deck.animations(self.current)] if self.current is not None else []
+
+    def _anim_targets(self):
+        c = self.canvas
+        if c.edit is not None:
+            return [c.edit.base]
+        return list(c.sel)
+
+    def _write_anims(self, fx, label="Animation"):
+        self.deck.set_animations(self.current, fx, label)
+        self.changed(slide=True)
+        self.sync_animation()
+
+    def act_anim(self, spec):
+        """Apply an effect (class:preset) to the selected objects, replacing what they had; none removes."""
+        ids = self._anim_targets()
+        if not ids:
+            self.dialogs.info("Select an object to animate first.")
+            return
+        fx = self._anims()
+        if spec == "none":
+            fx = [e for e in fx if e["spid"] not in ids]
+            return self._write_anims(fx, "Remove Animation")
+        cls, preset = spec.split("-")[0], int(spec.split("-")[1])
+        sub, dur = self._anim_defaults(cls, preset)
+        for sid in ids:
+            mine = [k for k, e in enumerate(fx) if e["spid"] == sid]
+            new = {"spid": sid, "class": cls, "preset": preset, "subtype": sub, "trigger": "click", "delay": 0.0,
+                   "dur": dur, "repeat": 1.0}
+            if mine:
+                k = mine[0]
+                new["trigger"], new["delay"] = fx[k]["trigger"], fx[k]["delay"]
+                fx[k] = new
+                for j in reversed(mine[1:]):
+                    del fx[j]
+            else:
+                fx.append(new)
+        self._write_anims(fx)
+        self.preview_animations(only=ids)
+
+    def act_anim_add(self, spec):
+        ids = self._anim_targets()
+        if not ids:
+            self.dialogs.info("Select an object to animate first.")
+            return
+        fx = self._anims()
+        cls, preset = spec.split("-")[0], int(spec.split("-")[1])
+        sub, dur = self._anim_defaults(cls, preset)
+        for sid in ids:
+            fx.append({"spid": sid, "class": cls, "preset": preset, "subtype": sub, "trigger": "click", "delay": 0.0,
+                       "dur": dur, "repeat": 1.0})
+        # the new effect is the one being worked on
+        self.anim_pick = len(fx) - 1
+        self._write_anims(fx, "Add Animation")
+
+    def _selected_effects(self, fx):
+        """Indexes of the effects being worked on: the pane's pick, else the selected objects'."""
+        pick = getattr(self, "anim_pick", None)
+        if pick is not None and pick < len(fx):
+            return [pick]
+        ids = self._anim_targets()
+        return [k for k, e in enumerate(fx) if e["spid"] in ids]
+
+    def _edit_effects(self, change, label):
+        fx = self._anims()
+        ks = self._selected_effects(fx)
+        if not ks:
+            return
+        for k in ks:
+            change(fx[k])
+        self._write_anims(fx, label)
+
+    def act_anim_option(self, sub):
+        self._edit_effects(lambda e: e.update(subtype=int(sub)), "Effect Options")
+
+    def act_anim_start(self, trig):
+        self._edit_effects(lambda e: e.update(trigger=trig), "Animation Start")
+
+    def act_anim_duration(self, v):
+        self._edit_effects(lambda e: e.update(dur=max(0.01, float(v))), "Animation Duration")
+
+    def act_anim_delay(self, v):
+        self._edit_effects(lambda e: e.update(delay=max(0.0, float(v))), "Animation Delay")
+
+    def _move_effect(self, d):
+        fx = self._anims()
+        ks = self._selected_effects(fx)
+        if not ks:
+            return
+        k = ks[0]
+        j = k + d
+        if 0 <= j < len(fx):
+            fx[k], fx[j] = fx[j], fx[k]
+            self.anim_pick = j
+            self._write_anims(fx, "Reorder Animation")
+
+    def act_anim_earlier(self):
+        self._move_effect(-1)
+
+    def act_anim_later(self):
+        self._move_effect(1)
+
+    def act_anim_remove(self):
+        fx = self._anims()
+        ks = set(self._selected_effects(fx))
+        self.anim_pick = None
+        self._write_anims([e for k, e in enumerate(fx) if k not in ks], "Remove Animation")
+
+    def act_anim_painter(self):
+        ids = self._anim_targets()
+        fx = self._anims()
+        mine = [dict(e) for e in fx if ids and e["spid"] == ids[0]]
+        if not mine:
+            return
+        for e in mine:
+            e.pop("index", None)
+        self.anim_painter_fx = mine
+        self.status.slide_label.set_text("Click an object to give it the same animation")
+
+    def apply_anim_painter(self, sid):
+        mine = getattr(self, "anim_painter_fx", None)
+        if not mine:
+            return
+        self.anim_painter_fx = None
+        fx = [e for e in self._anims() if e["spid"] != sid]
+        for e in mine:
+            e = dict(e)
+            e["spid"] = sid
+            fx.append(e)
+        self._write_anims(fx, "Animation Painter")
+        self.status.set_slide(self.current or 0, self.deck.slide_count())
+
+    def act_anim_trigger(self):
+        self.not_available("not-available:Animation triggers")
+
+    def act_anim_preview(self):
+        self.preview_animations()
+
+    def preview_animations(self, only=None):
+        """Play the slide's effects in the slide area, one group after another."""
+        from .anim import Player
+        if self.current is None:
+            return
+        pl = Player(self.deck, self.current)
+        if not pl.effects:
+            return
+        self.canvas.play_animation(pl)
+
+    def act_anim_pane(self):
+        from .panes import animation_pane
+        animation_pane(self)
+
+    def anim_menu(self, add=False):
+        cmd = "anim-add:" if add else "anim:"
+        items = [("#", "Entrance")] + [(n, "%sentr-%d" % (cmd, p)) for p, n in ENTRANCE]
+        items += [("#", "Emphasis")] + [(n, "%semph-%d" % (cmd, p)) for p, n in EMPHASIS]
+        items += [("#", "Exit")] + [(n, "%sexit-%d" % (cmd, p)) for p, n in EXIT]
+        return items
+
+    def anim_options_menu(self):
+        fx = self._anims()
+        ks = self._selected_effects(fx)
+        if not ks:
+            return [("#", "Select an animated object")]
+        e = fx[ks[0]]
+        opts = DIRECTIONS.get(e["preset"]) if e["class"] in ("entr", "exit") else None
+        if not opts:
+            return [("#", "No effect options for this animation")]
+        return [(label, "anim-option:%d" % v) for label, v in opts]
+
+    def sync_animation(self):
+        """The Animations tab shows the selected object's effect."""
+        if self.current is None or not self.deck.slide_count():
+            return
+        fx = self._anims()
+        ks = self._selected_effects(fx)
+        e = fx[ks[0]] if ks else None
+        for cls, lst in (("entr", ENTRANCE), ("emph", EMPHASIS), ("exit", EXIT)):
+            for p, _n in lst:
+                self.ribbon.update("an-%s-%d" % (cls, p), "true" if e and e["class"] == cls and e["preset"] == p else "false")
+        self.ribbon.update("an-none", "true" if e is None else "false")
+        if getattr(self, "anim_start_combo", None) is not None and e is not None:
+            self.anim_start_combo.quiet = True
+            self.anim_start_combo.set_active_id(e["trigger"])
+            self.anim_start_combo.quiet = False
+        for attr, val in (("anim_dur_spin", e["dur"] if e else 0.5), ("anim_delay_spin", e["delay"] if e else 0.0)):
+            sp = getattr(self, attr, None)
+            if sp is not None:
+                sp.quiet = True
+                sp.set_value(val)
+                sp.quiet = False
+        pane = getattr(self, "anim_pane", None)
+        if pane is not None:
+            pane.refresh()

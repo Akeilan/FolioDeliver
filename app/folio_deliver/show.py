@@ -36,6 +36,55 @@ class ShowState:
         self.trans = None
         self.no_click = False
         self._adv = None
+        self.player = None
+        self.step = 0
+        self.playing = None          # (group, start time)
+        self._load_player(at_end=False)
+
+    # ------------------------------------------------------------ animations
+    def _load_player(self, at_end=False):
+        from .anim import Player
+        try:
+            self.player = Player(self.deck, self.index)
+        except Exception:
+            self.player = None
+        n = len(self.player.groups) if self.player else 0
+        self.step = n if at_end else 0
+        self.playing = None
+        if not at_end and self.player and self.player.auto_first:
+            self.play(0)
+
+    def play(self, g):
+        self.playing = (g, time.time() + (self.trans[4] if self.trans else 0.0))
+        self._tick_anim()
+
+    def _tick_anim(self):
+        if getattr(self, "_anim_src", None):
+            return
+
+        def tick():
+            if self.playing is None or self.ended:
+                self._anim_src = None
+                return False
+            g, start = self.playing
+            if time.time() - start >= self.player.length(g):
+                self.step = g + 1
+                self.playing = None
+                self._anim_src = None
+                self.changed()
+                return False
+            self.changed()
+            return True
+        self._anim_src = GLib.timeout_add(16, tick)
+
+    def anim_state(self):
+        """(key, shape states) for the current slide now; key None while it moves."""
+        if not self.player or not self.player.effects:
+            return ("static",), None
+        if self.playing is not None:
+            g, start = self.playing
+            return None, self.player.state(self.step, g, max(0.0, time.time() - start))
+        return ("step", self.step), self.player.state(self.step)
 
     @property
     def index(self):
@@ -90,6 +139,9 @@ class ShowState:
             self.trans = (old, self.index, kind, opt, max(0.05, dur or 0.75), time.time())
         else:
             self.trans = None
+        back = getattr(self, "_back", False)
+        self._back = False
+        self._load_player(at_end=back)
         self._schedule_advance(after)
         self.changed()
 
@@ -108,6 +160,16 @@ class ShowState:
             self._adv = GLib.timeout_add(int(delay * 1000) + 1, go)
 
     def next(self):
+        if self.screen not in ("end",) and self.player and self.player.groups:
+            if self.playing is not None:
+                # a click during an animation finishes it
+                self.step = self.playing[0] + 1
+                self.playing = None
+                self.changed()
+                return
+            if self.step < len(self.player.groups):
+                self.play(self.step)
+                return
         self.go(self.pos + 1)
 
     def prev(self):
@@ -115,6 +177,12 @@ class ShowState:
             self.screen = None
             self.changed()
             return
+        if self.player and (self.step > (1 if self.player.auto_first else 0) or self.playing is not None):
+            self.playing = None
+            self.step = max(0, self.step - 1)
+            self.changed()
+            return
+        self._back = True
         self.go(self.pos - 1)
 
     def goto_slide(self, i):
@@ -135,18 +203,34 @@ class ShowState:
             self._adv = None
         self.changed()
 
-    def picture(self, i, w, h):
-        """Slide i fitted into w x h pixels: (surface, x, y, scale)."""
+    def picture(self, i, w, h, initial=False):
+        """Slide i fitted into w x h pixels: (surface, x, y, scale). The current slide is drawn
+        as its animations have it now; others (and `initial`) as they start."""
         sw, sh = self.deck.size()
         scale = min(w / sw, h / sh)
-        key = (i, round(scale, 4), self.deck.version)
-        s = self.cache.get(key)
+        anim_key, anim = ("static",), None
+        if i == self.index and not initial and self.player is not None:
+            anim_key, anim = self.anim_state()
+        elif i is not None:
+            from .anim import Player
+            others = self.__dict__.setdefault("_other_players", {})
+            if i not in others:
+                try:
+                    others[i] = Player(self.deck, i)
+                except Exception:
+                    others[i] = None
+            pl = others[i]
+            if pl is not None and pl.effects:
+                anim_key, anim = ("start",), pl.state(0)
+        key = (i, round(scale, 4), self.deck.version, anim_key)
+        s = self.cache.get(key) if anim_key is not None else None
         if s is None:
-            pw, ph, stride, data, _ = self.deck.render(i, scale, False)
+            pw, ph, stride, data, _ = self.deck.render(i, scale, False, anim)
             s = surface_from(pw, ph, stride, data)
-            if len(self.cache) > 24:
-                self.cache.clear()
-            self.cache[key] = s
+            if anim_key is not None:
+                if len(self.cache) > 24:
+                    self.cache.clear()
+                self.cache[key] = s
         return s, (w - sw * scale) / 2, (h - sh * scale) / 2, scale
 
 
