@@ -167,8 +167,17 @@ COLORFUL = [
 ]
 
 
+def _tint(c, t):
+    r, g, b = (c >> 16) & 255, (c >> 8) & 255, c & 255
+    return (int(r + (255 - r) * t) << 16) | (int(g + (255 - g) * t) << 8) | int(b + (255 - b) * t)
+
+
+def _shade(c, t):
+    r, g, b = (c >> 16) & 255, (c >> 8) & 255, c & 255
+    return (int(r * (1 - t)) << 16) | (int(g * (1 - t)) << 8) | int(b * (1 - t))
+
+
 def _mono(base):
-    from .drawing import _tint, _shade
     return [_shade(base, 0.25), base, _tint(base, 0.3), _tint(base, 0.5), _shade(base, 0.5),
             _tint(base, 0.7)]
 

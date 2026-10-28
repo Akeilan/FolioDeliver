@@ -8,11 +8,81 @@ def ease(p):
     return p * p * (3 - 2 * p)
 
 
+def path_points(path):
+    """A motion path ("M 0 0 L 0.25 0 C ... E", slide fractions) as points along it."""
+    toks = path.replace(",", " ").split()
+    pts = [(0.0, 0.0)]
+    cur = (0.0, 0.0)
+    k = 0
+    cmd = "M"
+    while k < len(toks):
+        t = toks[k]
+        if t.isalpha():
+            cmd = t.upper()
+            k += 1
+            if cmd in ("E", "Z"):
+                if cmd == "Z":
+                    pts.append(pts[0])
+                continue
+            continue
+        try:
+            if cmd in ("M", "L"):
+                x, y = float(toks[k]), float(toks[k + 1])
+                k += 2
+                if cmd == "M" and len(pts) == 1:
+                    pts = [(x, y)]
+                else:
+                    pts.append((x, y))
+                cur = (x, y)
+            elif cmd == "C":
+                x1, y1, x2, y2, x, y = (float(v) for v in toks[k:k + 6])
+                k += 6
+                for n in range(1, 13):
+                    u = n / 12.0
+                    a = (1 - u) ** 3
+                    b = 3 * (1 - u) ** 2 * u
+                    c = 3 * (1 - u) * u * u
+                    dd = u ** 3
+                    pts.append((a * cur[0] + b * x1 + c * x2 + dd * x, a * cur[1] + b * y1 + c * y2 + dd * y))
+                cur = (x, y)
+            else:
+                k += 1
+        except (ValueError, IndexError):
+            break
+    return pts
+
+
+def along(pts, q):
+    """The point a fraction q of the way along a polyline."""
+    if len(pts) < 2:
+        return pts[0] if pts else (0.0, 0.0)
+    segs = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:])]
+    total = sum(segs) or 1.0
+    d = q * total
+    for (a, b), L in zip(zip(pts, pts[1:]), segs):
+        if d <= L or L == segs[-1]:
+            f = d / L if L else 0.0
+            f = min(1.0, f)
+            return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)
+        d -= L
+    return pts[-1]
+
+
+# the motion paths offered on the Animations tab (slide fractions; down or to the right)
+MOTION_PATHS = {
+    1: "M 0 0 L 0 0.25 E",
+    2: "M 0 0 C 0.1 -0.18 0.3 -0.18 0.4 0 E",
+    3: "M 0 0 L 0.25 0 L 0.25 0.25 E",
+    4: "M 0 0 C 0 -0.13 0.15 -0.13 0.15 0 C 0.15 0.13 0 0.13 0 0 Z E",
+    5: "M 0 0 C 0.1 -0.2 0.25 -0.05 0.12 0.05 C 0.02 0.12 0.15 0.2 0.3 0 E",
+}
+
+
 class Player:
-    def __init__(self, deck, i):
+    def __init__(self, deck, i, on=0):
         self.deck = deck
         self.i = i
-        self.effects = deck.animations(i) if i is not None else []
+        self.effects = [e for e in (deck.animations(i) if i is not None else []) if e.get("on", 0) == on]
         sw, sh = deck.size()
         self.sw, self.sh = sw, sh
         self.boxes = {}
@@ -147,6 +217,16 @@ class Player:
                 v[0] *= 1 - q
             if p >= 1:
                 v[6] = True
+        elif cls == "path":
+            pts = getattr(self, "_paths", {}).get(e["motion"])
+            if pts is None:
+                pts = path_points(e["motion"] or MOTION_PATHS.get(e["preset"], "M 0 0 L 0 0.25 E"))
+                self.__dict__.setdefault("_paths", {})[e["motion"]] = pts
+            px, py = along(pts, q)
+            v[1] += px * self.sw
+            v[2] += py * self.sh
+        elif cls == "mediacall":
+            pass
         elif cls == "emph":
             if pre == 8:
                 v[5] += 360 * q

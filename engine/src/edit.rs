@@ -546,6 +546,24 @@ impl Deck {
                     d.set_attr(xf, "rot", &format!("{}", (r * 60000.0).round() as i64));
                 }
             }
+            // the same shape in the other branch of alternate content moves with it
+            let (_ac, twins) = alt_twins(d, n);
+            for t in twins {
+                let txf = ensure_xfrm(d, t);
+                for (k, v) in [("a:off", (emu_s(*x), emu_s(*y))), ("a:ext", (emu_s(w.abs()), emu_s(h.abs())))] {
+                    if let Some(c) = d.child(txf, k) {
+                        let (a, b) = if k == "a:off" { ("x", "y") } else { ("cx", "cy") };
+                        d.set_attr(c, a, &v.0);
+                        d.set_attr(c, b, &v.1);
+                    }
+                }
+                match d.attr(xf, "rot").map(|s| s.to_string()) {
+                    Some(r) => d.set_attr(txf, "rot", &r),
+                    None => {
+                        d.remove_attr(txf, "rot");
+                    }
+                }
+            }
             // a group's children move and scale with it
             if d.name(n) == "p:grpSp" && ow > 0.0 && oh > 0.0 {
                 let _ = (ox, oy);
@@ -596,7 +614,15 @@ impl Deck {
         for id in ids {
             if let Some(n) = self.find_shape(&part, *id) {
                 let d = self.pkg.xml_mut(&part).map_err(|e| e.to_string())?;
-                d.detach(n);
+                // a shape in alternate content goes with all its branches
+                match alt_twins(d, n) {
+                    (Some(ac), _) => {
+                        d.detach(ac);
+                    }
+                    _ => {
+                        d.detach(n);
+                    }
+                }
             }
         }
         self.commit();
@@ -2021,6 +2047,29 @@ impl Deck {
 }
 
 /// A text target: a shape id, or a table cell (shape id + cell index, cell counted row by row).
+/// A shape inside mc:AlternateContent: the AlternateContent and the same shape in its other
+/// branches (an equation and its picture), which move and go with it.
+pub(crate) fn alt_twins(d: &XmlDoc, n: NodeId) -> (Option<NodeId>, Vec<NodeId>) {
+    let Some(br) = d.parent(n) else { return (None, Vec::new()) };
+    if !matches!(d.name(br), "mc:Choice" | "mc:Fallback") {
+        return (None, Vec::new());
+    }
+    let Some(ac) = d.parent(br) else { return (None, Vec::new()) };
+    let id = scene::shape_id(d, n).0;
+    let mut out = Vec::new();
+    for b in d.elements(ac) {
+        if b == br {
+            continue;
+        }
+        for c in d.elements(b) {
+            if scene::shape_id(d, c).0 == id {
+                out.push(c);
+            }
+        }
+    }
+    (Some(ac), out)
+}
+
 pub fn split_tid(tid: u32) -> (u32, Option<usize>) {
     let cell = tid >> 20;
     (tid & 0xFFFFF, if cell == 0 { None } else { Some(cell as usize - 1) })

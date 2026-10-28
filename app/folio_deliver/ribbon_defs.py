@@ -535,7 +535,7 @@ def build_ribbon(win):
                        ("Rotate all text 270°", "text-direction:vert270"), ("Stacked", "text-direction:wordArtVert")]),
           B.icon("r-align-middle-sm", None, "AT", "Align Text",
                  menu=[("Top", "anchor:t"), ("Middle", "anchor:ctr"), ("Bottom", "anchor:b")]),
-          B.icon("r-smartart", "not-available:Convert to SmartArt", "M", "Convert to SmartArt")]],
+          B.icon("r-smartart", "convert-smartart", "M", "Convert to SmartArt")]],
     ], launcher="paragraph-dialog", launcher_keytip="PG")
     shapes_btn = MenuButton(r, "Shapes", "r-shapes", lambda: shapes_gallery(win), size="large", keytip="SH")
     B.group(t, "Drawing", [
@@ -562,12 +562,13 @@ def build_ribbon(win):
                                       keytip="I", tooltip="New Slide (Ctrl+M)")])
     B.group(t, "Tables", [MenuButton(r, "Table", "r-table", lambda: win.table_menu(), size="large", keytip="T")])
     B.group(t, "Images", [B.big("Pictures", "r-pictures", "insert-picture", "P"),
-                          B.big("Screenshot", "r-screenshot", "screenshot", "SC"),
+                          B.big("Screenshot", "r-screenshot", None, "SC",
+                                menu=[("Screen Clipping", "screenshot:clip"), ("Whole Screen", "screenshot:screen")]),
                           B.big("Photo Album", "insertgraphic", "photo-album", "A")])
     B.group(t, "Illustrations", [MenuButton(r, "Shapes", "r-shapes", lambda: shapes_gallery(win), size="large", keytip="SH"),
-                                 B.big("Icons", "insert-icons", na("Icons"), "Y"),
-                                 B.big("SmartArt", "r-smartart", na("SmartArt"), "M"),
-                                 B.big("Chart", "r-chart-column-sm", na("Insert Chart"), "C")])
+                                 B.big("Icons", "insert-icons", "insert-icons", "Y"),
+                                 B.big("SmartArt", "r-smartart", "insert-smartart", "M"),
+                                 B.big("Chart", "r-chart-column-sm", "insert-chart", "C")])
     B.group(t, "Links", [B.big("Link", "r-link", "insert-link", "I", tip="Link (Ctrl+K)")])
     B.group(t, "Comments", [B.big("Comment", "r-new-comment", "new-comment", "L")])
     B.group(t, "Text", [B.big("Text Box", "r-text-box", "draw-textbox", "X"),
@@ -576,19 +577,27 @@ def build_ribbon(win):
                          B.small("Date & Time", "insertdatetimefield" if icons.exists("insertdatetimefield") else "r-recent",
                                  "insert-date", "D")],
                         [B.small("Slide Number", "insertslidenumberfield", "insert-slide-number", "SN"),
-                         B.small("Object", "insertobject", na("Insert Object"), "J")]])
-    B.group(t, "Symbols", [B.big("Equation", "r-equation", na("Equations"), "E"),
+                         B.small("Object", "insertobject", "insert-object", "J")]])
+    B.group(t, "Symbols", [B.big("Equation", "r-equation", "insert-equation", "E"),
                            B.big("Symbol", "r-symbol", "insert-symbol", "U")])
-    B.group(t, "Media", [B.big("Video", "insertvideo", na("Video"), "V"), B.big("Audio", "insertsound", na("Audio"), "O")])
+    B.group(t, "Media", [B.big("Video", "insertvideo", None, "V", menu=[("This Device...", "insert-video")]),
+                         B.big("Audio", "insertsound", None, "O", menu=[("Audio on My PC...", "insert-audio"), ("Record Audio...", "record-audio")]),
+                         B.big("Screen Recording", "r-screenshot", "screen-recording", "R")])
     r.add_tab(t)
 
     # ================================================================ Draw
     t = r.building(Tab("Draw", "JI"))
     B.group(t, "Drawing Tools", [B.big("Select", "r-draw-select", "pointer", "S"),
-                                 B.big("Pen", "r-draw-pen", na("Ink on slides"), "P"),
-                                 B.big("Highlighter", "r-draw-highlighter", na("Ink on slides"), "H"),
-                                 B.big("Eraser", "r-draw-eraser", na("Ink on slides"), "E")])
-    B.group(t, "Convert", [B.big("Ink to Shape", "r-ink-to-shape", na("Ink to Shape"), "IS")])
+                                 B.big("Pen", "r-draw-pen", "ink:pen", "P", menu=[("Black", "ink-color:000000"), ("Blue", "ink-color:0070C0"),
+                                                                                  ("Red", "ink-color:C00000"), ("Green", "ink-color:00B050"), None,
+                                                                                  ("0.5 pt", "ink-width:0.5"), ("1 pt", "ink-width:1"),
+                                                                                  ("2.25 pt", "ink-width:2.25"), ("3.5 pt", "ink-width:3.5")]),
+                                 B.big("Pen 2", "r-draw-pen", "ink:pen2", "P2"),
+                                 B.big("Highlighter", "r-draw-highlighter", "ink:highlighter", "H",
+                                       menu=[("Yellow", "ink-color:FFFF00"), ("Green", "ink-color:00FF00"), ("Pink", "ink-color:FF66CC"),
+                                             ("Turquoise", "ink-color:00FFFF")]),
+                                 B.big("Eraser", "r-draw-eraser", "ink:eraser", "E")])
+    B.group(t, "Convert", [B.big("Ink to Shape", "r-ink-to-shape", "ink-to-shape", "IS")])
     r.add_tab(t)
 
     # ================================================================ Design
@@ -665,9 +674,10 @@ def build_ribbon(win):
     # ================================================================ Record
     t = r.building(Tab("Record", "C"))
     B.group(t, "Record", [B.big("From Current Slide", "mediarecording" if icons.exists("mediarecording") else "insertvideo",
-                                na("Recording"), "C"),
-                          B.big("From Beginning", "insertvideo", na("Recording"), "B")])
-    B.group(t, "Auto-Play Media", [B.big("Screen Recording", "r-screenshot", na("Screen Recording"), "R")])
+                                "record:current", "C"),
+                          B.big("From Beginning", "insertvideo", "record:beginning", "B")])
+    B.group(t, "Auto-Play Media", [B.big("Screen Recording", "r-screenshot", "screen-recording", "R"),
+                                   B.big("Audio", "insertsound", "insert-audio", "A"), B.big("Video", "insertvideo", "insert-video", "V")])
     B.group(t, "Save", [B.big("Export to Video", "insertvideo", "create-video", "E")])
     r.add_tab(t)
 
@@ -707,6 +717,15 @@ def build_ribbon(win):
     r.add_tab(t)
 
     build_master_tabs(win, r, B)
+    from .chart_ui import chart_tab
+    chart_tab(win, r, B, Tab)
+    from .smartart_ui import smartart_tab
+    smartart_tab(win, r, B, Tab)
+    t = r.building(Tab("Playback", "JN", contextual=True))
+    B.group(t, "Preview", [B.big("Play", "runbasic" if icons.exists("runbasic") else "presentation", "media-play", "P")])
+    B.group(t, "Media Options", [B.big("Start", "presentation", None, "S",
+                                       menu=[("On Click", "media-start:click"), ("Automatically", "media-start:auto")])])
+    r.add_tab(t)
 
     # ================================================================ Help
     t = r.building(Tab("Help", "Y"))

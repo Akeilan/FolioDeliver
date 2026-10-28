@@ -189,6 +189,20 @@ try:
     q = Presentation.open(path)
     check(q.table_size(1, tid) == (3, 5) and q.transition(1)[0] == "push", "reopen keeps the table and transitions")
     print("saved", path)
+    # cells copied from a spreadsheet paste as a table (P-13)
+    win.go_slide(1)
+    win.canvas.leave_text()
+    win.canvas.select([])
+    Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text("Item\tQ1\tQ2\nPens\t3\t4\n", -1)
+    pump(0.2)
+    win.focus_document()
+    win.run("paste")
+    pump(0.2)
+    pt = win.canvas.sel[0] if win.canvas.sel else None
+    check(pt is not None and d.table_size(1, pt) == (2, 3), "tab-separated cells paste as a 2 x 3 table")
+    check(pt is not None and d.paragraphs(1, Presentation.cell_id(pt, 4)) == ["3"], "cell text pasted")
+    from folio_deliver.window import table_from_text
+    check(table_from_text("just text") is None and table_from_text("a\tb") == [["a", "b"]], "plain text stays text")
 except Exception:
     traceback.print_exc()
     FAILS.append("exception")

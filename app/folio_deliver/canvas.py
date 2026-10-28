@@ -86,6 +86,8 @@ class SlideCanvas(Gtk.Box):
         self.show_grid = False
         self.show_guides = False
         self.crop = None                 # picture being cropped
+        self.ink_tool = None             # Draw tab: "pen" | "pen2" | "highlighter" | "eraser"
+        self.ink_points = []
 
     # ------------------------------------------------------------ geometry
     @property
@@ -243,6 +245,17 @@ class SlideCanvas(Gtk.Box):
             self._draw_anim_tags(cr)
         self._draw_comment_markers(cr)
         self.win.draw_handout_frames(cr)
+        if self.ink_points and len(self.ink_points) > 1:
+            pens = getattr(self.win, "ink_pens", None) or __import__("folio_deliver.ink_ui", fromlist=["x"]).PENS
+            color, width, alpha = pens.get(self.ink_tool, (0, 1.0, 100.0))
+            cr.set_source_rgba(((color >> 16) & 255) / 255.0, ((color >> 8) & 255) / 255.0, (color & 255) / 255.0, alpha / 100.0)
+            cr.set_line_width(max(1.0, width * self.scale))
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            cr.move_to(*self.to_px(*self.ink_points[0]))
+            for p in self.ink_points[1:]:
+                cr.line_to(*self.to_px(*p))
+            cr.stroke()
         if self.crop is not None:
             self._draw_crop(cr)
             return
@@ -668,6 +681,13 @@ class SlideCanvas(Gtk.Box):
 
     # ------------------------------------------------------------ selection
     def select(self, ids, edit=None):
+        # the shapes list is fresh after an edit (it's rebuilt when the slide is drawn)
+        if self.index is not None and self.deck is not None:
+            try:
+                self.compute_scale()
+                self._surface()
+            except Exception:
+                pass
         self.sel = list(ids)
         if edit is None and self.edit is not None and self.edit.base not in self.sel:
             self.leave_text()
@@ -763,6 +783,14 @@ class SlideCanvas(Gtk.Box):
             return True
         if self.crop is not None and self._crop_press(ev):
             return True
+        if self.ink_tool is not None:
+            if self.ink_tool == "eraser":
+                self.win.erase_at(sx, sy)
+                self.drag = {"kind": "erase", "start": (ev.x, ev.y)}
+            else:
+                self.ink_points = [(sx, sy)]
+                self.drag = {"kind": "ink", "start": (ev.x, ev.y)}
+            return True
         k = self.comment_at(ev.x, ev.y)
         if k is not None:
             self.win._show_comment(self.index, k)
@@ -779,13 +807,29 @@ class SlideCanvas(Gtk.Box):
             if s is not None and self.edit is not None and self.edit.base == s["id"]:
                 self._select_word()
                 return True
+            if s is not None and s["geom"] == "equation":
+                self.select([s["id"]])
+                self.win.run("edit-equation")
+                return True
             if s is not None and s["kind"] in ("sp",):
                 pos = self.deck.hit(self.index, s["id"], sx, sy)
                 self.start_text(s["id"], pos)
                 self._select_word()
                 return True
+            if s is not None and s["kind"] == "pic" and self.win.deck.media_info(self.index, s["id"]):
+                self.select([s["id"]])
+                self.win.run("media-play")
+                return True
             if s is not None and s["kind"] == "pic":
                 self.win.run("tab:Picture Format")
+            if s is not None and s["geom"] == "chart":
+                self.select([s["id"]])
+                self.win.run("chart:edit")
+            if s is not None and s["geom"] == "smartart":
+                self.select([s["id"]])
+                self.win.run("smartart:pane")
+            if s is not None and self.win.deck.embedded_info(self.index, s["id"]):
+                self.win.open_object(s["id"])
             return True
         if ev.type == Gdk.EventType._3BUTTON_PRESS and self.edit is not None:
             p = self.edit.caret[0]
@@ -884,6 +928,13 @@ class SlideCanvas(Gtk.Box):
         if d["kind"] in ("crop", "croppan"):
             self._crop_motion(d, ev)
             return True
+        if d["kind"] == "ink":
+            self.ink_points.append(self.to_slide(ev.x, ev.y))
+            self.queue()
+            return True
+        if d["kind"] == "erase":
+            self.win.erase_at(*self.to_slide(ev.x, ev.y))
+            return True
         if d["kind"] == "textsel":
             if self.edit is not None:
                 sx, sy = self.to_slide(ev.x, ev.y)
@@ -963,7 +1014,9 @@ class SlideCanvas(Gtk.Box):
         if win is None:
             return
         name = "default"
-        if self.insert_mode is not None:
+        if self.ink_tool is not None:
+            name = "cell" if self.ink_tool == "eraser" else "crosshair"
+        elif self.insert_mode is not None:
             name = "crosshair"
         else:
             s, handle = self.hit_handle(ev.x, ev.y)
@@ -1001,7 +1054,13 @@ class SlideCanvas(Gtk.Box):
         if d["kind"] == "textsel":
             self.win.selection_changed()
             return True
-        if d["kind"] in ("crop", "croppan"):
+        if d["kind"] in ("crop", "croppan", "erase"):
+            return True
+        if d["kind"] == "ink":
+            pts, self.ink_points = self.ink_points, []
+            if len(pts) > 1:
+                self.win.finish_stroke(pts)
+            self.queue()
             return True
         if not d["moved"]:
             self.queue()
@@ -1375,6 +1434,9 @@ class SlideCanvas(Gtk.Box):
             return True
         if self.crop is not None and name in ("Escape", "Return", "KP_Enter"):
             self.finish_crop()
+            return True
+        if self.ink_tool is not None and name == "Escape":
+            self.win.act_ink("off")
             return True
         e = self.edit
         if e is not None:

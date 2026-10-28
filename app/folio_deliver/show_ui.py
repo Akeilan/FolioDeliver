@@ -190,7 +190,7 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
         raise RuntimeError("Creating a video needs ffmpeg, which isn't installed (package ffmpeg).")
     cmd = [ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "%dx%d" % (w, h), "-r", str(fps),
            "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, preexec_fn=_die_with_parent)
     sw, sh = deck.size()
     scale = min(w / sw, h / sh)
     ox, oy = (w - sw * scale) / 2, (h - sh * scale) / 2
@@ -650,3 +650,13 @@ class ClipboardPane(Gtk.Window):
     def clear(self):
         self.win.app.clip_history = []
         self.refresh()
+
+
+def _die_with_parent():
+    """Child processes (ffmpeg recording) stop when Deliver does, rather than recording on."""
+    try:
+        import ctypes
+        import signal
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG
+    except Exception:
+        pass

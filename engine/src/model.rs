@@ -229,6 +229,21 @@ impl Deck {
         }
     }
 
+    /// Join the last two undo steps into one (a change made of two operations).
+    pub fn merge_last_two(&mut self, label: &str) {
+        if self.undo.len() < 2 {
+            return;
+        }
+        let last = self.undo.pop().unwrap();
+        let prev = self.undo.last_mut().unwrap();
+        for (n, b) in last.parts {
+            if !prev.parts.iter().any(|(m, _)| *m == n) {
+                prev.parts.push((n, b));
+            }
+        }
+        prev.label = label.to_string();
+    }
+
     /// The caret moved: the next typing starts a new undo step.
     pub fn break_typing(&mut self) {
         self.typing_chain = false;

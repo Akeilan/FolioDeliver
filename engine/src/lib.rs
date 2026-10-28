@@ -11,5 +11,6 @@ pub mod edit3;
 pub mod edit4;
 pub mod edit5;
 pub mod edit6;
+pub mod edit7;
 #[cfg(feature = "python")]
 pub mod py;

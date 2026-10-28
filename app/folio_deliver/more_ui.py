@@ -509,6 +509,7 @@ TRANSITIONS_BY_KIND = [(k, o) for k, _l, o in TRANSITIONS]
 ENTRANCE = [(1, "Appear"), (10, "Fade"), (2, "Fly In"), (42, "Float In"), (16, "Split"), (22, "Wipe"), (17, "Shape"),
             (21, "Wheel"), (14, "Random Bars"), (31, "Grow & Turn"), (53, "Zoom"), (26, "Bounce")]
 EMPHASIS = [(26, "Pulse"), (8, "Spin"), (6, "Grow/Shrink"), (32, "Teeter"), (9, "Transparency")]
+MOTION = [(1, "Lines"), (2, "Arcs"), (3, "Turns"), (4, "Shapes"), (5, "Loops")]
 EXIT = [(1, "Disappear"), (10, "Fade"), (2, "Fly Out"), (42, "Float Out"), (22, "Wipe"), (53, "Zoom"), (31, "Shrink & Turn")]
 DIRECTIONS = {2: [("From Bottom", 4), ("From Left", 8), ("From Right", 2), ("From Top", 1)],
               22: [("From Bottom", 4), ("From Left", 8), ("From Right", 2), ("From Top", 1)],
@@ -521,6 +522,13 @@ class AnimationCommands:
             if c == cls and p == preset:
                 return sub, dur
         return 0, 0.5
+
+    @staticmethod
+    def _motion_of(cls, preset):
+        if cls != "path":
+            return ""
+        from .anim import MOTION_PATHS
+        return MOTION_PATHS.get(preset, MOTION_PATHS[1])
 
     def _anims(self):
         return [dict(e) for e in self.deck.animations(self.current)] if self.current is not None else []
@@ -551,10 +559,10 @@ class AnimationCommands:
         for sid in ids:
             mine = [k for k, e in enumerate(fx) if e["spid"] == sid]
             new = {"spid": sid, "class": cls, "preset": preset, "subtype": sub, "trigger": "click", "delay": 0.0,
-                   "dur": dur, "repeat": 1.0}
+                   "dur": dur, "repeat": 1.0, "motion": self._motion_of(cls, preset)}
             if mine:
                 k = mine[0]
-                new["trigger"], new["delay"] = fx[k]["trigger"], fx[k]["delay"]
+                new["trigger"], new["delay"], new["on"] = fx[k]["trigger"], fx[k]["delay"], fx[k].get("on", 0)
                 fx[k] = new
                 for j in reversed(mine[1:]):
                     del fx[j]
@@ -573,7 +581,7 @@ class AnimationCommands:
         sub, dur = self._anim_defaults(cls, preset)
         for sid in ids:
             fx.append({"spid": sid, "class": cls, "preset": preset, "subtype": sub, "trigger": "click", "delay": 0.0,
-                       "dur": dur, "repeat": 1.0})
+                       "dur": dur, "repeat": 1.0, "motion": self._motion_of(cls, preset)})
         # the new effect is the one being worked on
         self.anim_pick = len(fx) - 1
         self._write_anims(fx, "Add Animation")
@@ -655,8 +663,51 @@ class AnimationCommands:
         self._write_anims(fx, "Animation Painter")
         self.status.set_slide(self.current or 0, self.deck.slide_count())
 
-    def act_anim_trigger(self):
-        self.not_available("not-available:Animation triggers")
+    def act_anim_trigger(self, spid=None):
+        """Trigger: the selected effect plays when a shape is clicked (or with the click sequence)."""
+        fx = self._anims()
+        ks = self._selected_effects(fx)
+        if not ks:
+            self.dialogs.info("Select an animated object first.")
+            return None
+        if spid in (None, ""):
+            names = {s["id"]: s["name"] for s in self.canvas.shapes}
+            d = Gtk.Dialog(title="Trigger", transient_for=self, modal=True)
+            d.get_style_context().add_class("folio-dialog")
+            d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+            d.add_button("OK", Gtk.ResponseType.OK)
+            box = d.get_content_area()
+            box.set_border_width(10)
+            box.set_spacing(6)
+            seq = Gtk.RadioButton.new_with_label(None, "As part of click sequence")
+            onc = Gtk.RadioButton.new_with_label_from_widget(seq, "Start effect on click of:")
+            combo = Gtk.ComboBoxText()
+            ids = [sid for sid in names if sid not in {fx[k]["spid"] for k in ks}] or list(names)
+            for sid in ids:
+                combo.append_text(names[sid])
+            combo.set_active(0)
+            cur = fx[ks[0]].get("on", 0)
+            if cur in ids:
+                onc.set_active(True)
+                combo.set_active(ids.index(cur))
+            for w in (seq, onc, combo):
+                box.pack_start(w, False, False, 0)
+            d.show_all()
+            r = d.run()
+            pick = 0 if seq.get_active() else (ids[combo.get_active()] if ids and combo.get_active() >= 0 else 0)
+            d.destroy()
+            if r != Gtk.ResponseType.OK:
+                return None
+            spid = pick
+        spid = int(spid)
+        for k in ks:
+            fx[k]["on"] = spid
+            if spid and k == ks[0]:
+                fx[k]["trigger"] = "click"
+        # triggered effects go after the click sequence, as PowerPoint lists them
+        fx = [e for e in fx if not e.get("on")] + [e for e in fx if e.get("on")]
+        self._write_anims(fx, "Trigger")
+        return spid
 
     def act_anim_preview(self):
         self.preview_animations()
@@ -680,6 +731,7 @@ class AnimationCommands:
         items = [("#", "Entrance")] + [(n, "%sentr-%d" % (cmd, p)) for p, n in ENTRANCE]
         items += [("#", "Emphasis")] + [(n, "%semph-%d" % (cmd, p)) for p, n in EMPHASIS]
         items += [("#", "Exit")] + [(n, "%sexit-%d" % (cmd, p)) for p, n in EXIT]
+        items += [("#", "Motion Paths")] + [(n, "%spath-%d" % (cmd, p)) for p, n in MOTION]
         return items
 
     def anim_options_menu(self):
