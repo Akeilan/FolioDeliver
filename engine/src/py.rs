@@ -588,6 +588,54 @@ impl PyPresentation {
         self.deck.set_chart_workbook(part, &data).map_err(err)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn add_svg_picture(&mut self, i: usize, svg: Vec<u8>, png: Vec<u8>, name: &str, x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.add_svg_picture(i, &svg, &png, name, x, y, w, h).map_err(err)
+    }
+
+    // --------------------------------------------------------- ink, media, objects
+    #[pyo3(signature = (i, pts, color, width, alpha=100.0, name="Ink"))]
+    fn add_ink(&mut self, i: usize, pts: Vec<(f64, f64)>, color: u32, width: f64, alpha: f64, name: &str) -> PyResult<u32> {
+        self.deck.add_ink(i, &pts, color, width, alpha, name).map_err(err)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_media(&mut self, i: usize, kind: &str, data: Vec<u8>, ext: &str, poster: Vec<u8>, name: &str,
+                 x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.add_media(i, kind, data, ext, poster, name, x, y, w, h).map_err(err)
+    }
+
+    fn media_info(&mut self, i: usize, id: u32) -> Option<(String, String, String)> {
+        self.deck.media_info(i, id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_embedded(&mut self, i: usize, data: Vec<u8>, ext: &str, prog_id: &str, icon: Vec<u8>, name: &str,
+                    x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.add_embedded(i, data, ext, prog_id, icon, name, x, y, w, h).map_err(err)
+    }
+
+    fn embedded_info(&mut self, i: usize, id: u32) -> Option<(String, String)> {
+        self.deck.embedded_info(i, id)
+    }
+
+    fn part_bytes<'py>(&mut self, py: Python<'py>, part: &str) -> Option<Bound<'py, PyBytes>> {
+        self.deck.part_bytes(part).map(|b| PyBytes::new_bound(py, &b))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_equation(&mut self, i: usize, omml: &str, png: Vec<u8>, x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.insert_equation(i, omml, png, x, y, w, h).map_err(err)
+    }
+
+    fn equation(&mut self, i: usize, id: u32) -> Option<String> {
+        self.deck.equation(i, id)
+    }
+
+    fn set_equation(&mut self, i: usize, id: u32, omml: &str, png: Vec<u8>, w: f64, h: f64) -> PyResult<()> {
+        self.deck.set_equation(i, id, omml, png, w, h).map_err(err)
+    }
+
     // --------------------------------------------------------- SmartArt
     #[allow(clippy::too_many_arguments)]
     fn insert_diagram(&mut self, i: usize, data: String, layout: String, style: String, colors: String, drawing: String,
@@ -902,6 +950,8 @@ impl PyPresentation {
             d.set_item("delay", e.delay)?;
             d.set_item("dur", e.dur)?;
             d.set_item("repeat", e.repeat)?;
+            d.set_item("on", e.on)?;
+            d.set_item("motion", &e.motion)?;
             Ok(d)
         }).collect()
     }
@@ -920,11 +970,13 @@ impl PyPresentation {
             let subtype = get_f("subtype", 0.0) as u32;
             let keep = d.get_item("index").ok().flatten().and_then(|v| v.extract::<usize>().ok())
                 .and_then(|k| old.get(k)).filter(|o| o.class == class && o.preset == preset && o.subtype == subtype
-                    && (o.dur - get_f("dur", o.dur)).abs() < 1e-6 && (o.repeat - get_f("repeat", o.repeat)).abs() < 1e-6)
+                    && (o.dur - get_f("dur", o.dur)).abs() < 1e-6 && (o.repeat - get_f("repeat", o.repeat)).abs() < 1e-6
+                    && o.motion == get_s("motion", &o.motion))
                 .and_then(|o| o.xml.clone());
             out.push(crate::timing::Effect {
                 spid: get_f("spid", 0.0) as u32, class, preset, subtype, trigger: get_s("trigger", "click"),
                 delay: get_f("delay", 0.0), dur: get_f("dur", 0.5), repeat: get_f("repeat", 1.0), xml: keep,
+                on: get_f("on", 0.0) as u32, motion: get_s("motion", ""),
             });
         }
         self.deck.set_animations(i, &out, label).map_err(err)

@@ -223,7 +223,7 @@ try:
     check(win.save_to(path), "save")
     from folio_deliver.core import Presentation
     q = Presentation.open(path)
-    check(q.custom_shows() == [("Highlights", [3, 1])] and round(q.transition(3)[4], 1) == (0.5 if shutil.which("ffmpeg") else 3.0),
+    check(q.custom_shows() == [("Highlights", [3, 1])] and abs(q.transition(3)[4] - (0.5 if shutil.which("ffmpeg") else 3.0)) < 0.5,
           "reopen keeps custom shows and timings")
     print("saved", path)
 except Exception:

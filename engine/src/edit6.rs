@@ -208,3 +208,26 @@ impl Deck {
         Ok(())
     }
 }
+
+impl Deck {
+    /// A vector picture (an icon): the SVG with a PNG copy for programs that can't draw SVG.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_svg_picture(&mut self, i: usize, svg: &[u8], png: &[u8], name: &str, x: f64, y: f64, w: f64, h: f64) -> Result<u32, String> {
+        let id = self.add_picture(i, png.to_vec(), "png", name, x, y, w, h)?;
+        let slide = self.slide_part(i)?;
+        let media = self.free_name("ppt/media", "image", "svg");
+        self.begin("Insert Icon", &[slide.clone(), Package::rels_name(&slide), CT.to_string(), media.clone()]);
+        self.pkg.put_raw(&media, svg.to_vec());
+        self.pkg.ensure_default("svg", "image/svg+xml");
+        let rid = self.pkg.add_rel(&slide, &format!("{}image", crate::model::RT), &rel_path(&slide, &media));
+        let n = self.find_shape(&slide, id).ok_or("no picture")?;
+        let d = self.pkg.xml_mut(&slide).map_err(|e| e.to_string())?;
+        let blip = path(d, n, &["p:blipFill", "a:blip"]).ok_or("no blip")?;
+        let ext = fragment(d, &format!(r#"<a:extLst><a:ext uri="{{96DAC541-7B7A-43D3-8B79-37D633B846F1}}"><asvg:svgBlip xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main" r:embed="{rid}"/></a:ext></a:extLst>"#)).ok_or("bad svg blip")?;
+        d.append(blip, ext);
+        self.commit();
+        // one undo step with the picture
+        self.merge_last_two("Insert Icon");
+        Ok(id)
+    }
+}

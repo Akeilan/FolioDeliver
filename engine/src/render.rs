@@ -519,6 +519,24 @@ impl Painter {
                     }
                 }
                 geom = sh.geom.clone();
+                // an equation's picture (the fallback of math the renderer doesn't draw itself)
+                if let Some(fb) = dom.parent(n).filter(|&p| dom.name(p) == "mc:Fallback") {
+                    if dom.parent(fb).and_then(|ac| dom.child(ac, "mc:Choice")).map(|ch| {
+                        let mut found = false;
+                        fn walk(d: &XmlDoc, n: NodeId, f: &mut bool) {
+                            for c in d.elements(n) {
+                                if d.name(c) == "a14:m" {
+                                    *f = true;
+                                }
+                                walk(d, c, f);
+                            }
+                        }
+                        walk(dom, ch, &mut found);
+                        found
+                    }).unwrap_or(false) {
+                        geom = "equation".into();
+                    }
+                }
                 let fill = self.shape_fill(deck, ctx, &chain, &docs);
                 if !matches!(fill, Fill::None) {
                     cr.save().ok();

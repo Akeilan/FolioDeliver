@@ -22,6 +22,10 @@ pub struct Effect {
     pub repeat: f64,
     /// the effect's own p:par, as saved (None: write it from the preset)
     pub xml: Option<String>,
+    /// a trigger: the shape whose click plays it (0: the slide's main sequence)
+    pub on: u32,
+    /// a motion path ("M 0 0 L 0.25 0 E", in slide fractions)
+    pub motion: String,
 }
 
 /// (class, preset id, name, default subtype, default duration)
@@ -50,6 +54,12 @@ pub const PRESETS: &[(&str, u32, &str, u32, f64)] = &[
     ("exit", 22, "Wipe", 4, 0.5),
     ("exit", 53, "Zoom", 16, 0.5),
     ("exit", 31, "Shrink & Turn", 0, 0.5),
+    // motion paths (written as custom paths)
+    ("path", 1, "Lines", 0, 2.0),
+    ("path", 2, "Arcs", 0, 2.0),
+    ("path", 3, "Turns", 0, 2.0),
+    ("path", 4, "Shapes", 0, 2.0),
+    ("path", 5, "Loops", 0, 2.0),
 ];
 
 pub fn preset_name(class: &str, id: u32) -> String {
@@ -64,17 +74,40 @@ fn secs(v: Option<&str>) -> f64 {
     }
 }
 
-fn main_seq(d: &XmlDoc) -> Option<NodeId> {
-    let root_par = path(d, d.root, &["p:timing", "p:tnLst", "p:par"])?;
-    let lst = path(d, root_par, &["p:cTn", "p:childTnLst"])?;
-    d.children_named(lst, "p:seq").find(|&s| d.child(s, "p:cTn").and_then(|c| d.attr(c, "nodeType")) == Some("mainSeq"))
+/// The slide's sequences: (seq, trigger shape or 0 for the main sequence).
+fn seqs(d: &XmlDoc) -> Vec<(NodeId, u32)> {
+    let Some(root_par) = path(d, d.root, &["p:timing", "p:tnLst", "p:par"]) else { return Vec::new() };
+    let Some(lst) = path(d, root_par, &["p:cTn", "p:childTnLst"]) else { return Vec::new() };
+    let mut main = Vec::new();
+    let mut inter = Vec::new();
+    for s in d.children_named(lst, "p:seq") {
+        let Some(c) = d.child(s, "p:cTn") else { continue };
+        match d.attr(c, "nodeType") {
+            Some("mainSeq") => main.push((s, 0)),
+            Some("interactiveSeq") => {
+                let spid = path(d, c, &["p:stCondLst", "p:cond", "p:tgtEl", "p:spTgt"]).and_then(|t| emu(d, t, "spid")).unwrap_or(0.0) as u32;
+                if spid != 0 {
+                    inter.push((s, spid));
+                }
+            }
+            _ => {}
+        }
+    }
+    main.extend(inter);
+    main
 }
 
-/// The effects of a slide's main sequence, in order.
+/// The effects of a slide: its main sequence, then its triggered sequences, in order.
 pub fn read(d: &XmlDoc) -> Vec<Effect> {
     let mut out = Vec::new();
-    let Some(seq) = main_seq(d) else { return out };
-    let Some(groups) = path(d, seq, &["p:cTn", "p:childTnLst"]) else { return out };
+    for (seq, on) in seqs(d) {
+        read_seq(d, seq, on, &mut out);
+    }
+    out
+}
+
+fn read_seq(d: &XmlDoc, seq: NodeId, on: u32, out: &mut Vec<Effect>) {
+    let Some(groups) = path(d, seq, &["p:cTn", "p:childTnLst"]) else { return };
     for g in d.children_named(groups, "p:par") {
         let Some(gl) = path(d, g, &["p:cTn", "p:childTnLst"]) else { continue };
         for sub in d.children_named(gl, "p:par") {
@@ -92,10 +125,14 @@ pub fn read(d: &XmlDoc) -> Vec<Effect> {
                 // the target and the duration: the first behaviour that names them
                 let mut spid = 0u32;
                 let mut dur = 0.0f64;
-                fn walk(d: &XmlDoc, n: NodeId, spid: &mut u32, dur: &mut f64) {
+                let mut motion = String::new();
+                fn walk(d: &XmlDoc, n: NodeId, spid: &mut u32, dur: &mut f64, motion: &mut String) {
                     for c in d.elements(n) {
                         if d.name(c) == "p:spTgt" && *spid == 0 {
                             *spid = emu(d, c, "spid").unwrap_or(0.0) as u32;
+                        }
+                        if d.name(c) == "p:animMotion" && motion.is_empty() {
+                            *motion = d.attr(c, "path").unwrap_or("").to_string();
                         }
                         if d.name(c) == "p:cTn" {
                             if let Some(v) = d.attr(c, "dur") {
@@ -104,21 +141,21 @@ pub fn read(d: &XmlDoc) -> Vec<Effect> {
                                 }
                             }
                         }
-                        walk(d, c, spid, dur);
+                        walk(d, c, spid, dur, motion);
                     }
                 }
-                walk(d, e, &mut spid, &mut dur);
+                walk(d, e, &mut spid, &mut dur, &mut motion);
                 let repeat = d.attr(ec, "repeatCount").and_then(|v| v.parse::<f64>().ok()).map(|v| v / 1000.0).unwrap_or(1.0);
                 out.push(Effect {
                     spid, class, preset: emu(d, ec, "presetID").unwrap_or(0.0) as u32,
                     subtype: emu(d, ec, "presetSubtype").unwrap_or(0.0) as u32, trigger,
                     delay, dur, repeat,
                     xml: Some(d.serialize_node(e)),
+                    on, motion,
                 });
             }
         }
     }
-    out
 }
 
 fn dir_of(sub: u32) -> (&'static str, &'static str) {
@@ -189,6 +226,9 @@ fn effect_xml(e: &Effect, next: &mut u32, group: u32) -> String {
         ("emph", 9) => format!(r#"<p:set><p:cBhvr><p:cTn id="{}" dur="{dur}" fill="hold"/>{tgt}<p:attrNameLst><p:attrName>style.opacity</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="0.5"/></p:to></p:set>"#, id()),
         ("emph", 32) => format!(r#"<p:animRot by="120000"><p:cBhvr><p:cTn id="{}" dur="100" autoRev="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>{tgt}<p:attrNameLst><p:attrName>r</p:attrName></p:attrNameLst></p:cBhvr></p:animRot>"#, id()),
         ("emph", _) => format!(r#"<p:animScale><p:cBhvr><p:cTn id="{}" dur="{}" autoRev="1" fill="hold"/>{tgt}</p:cBhvr><p:by x="105000" y="105000"/></p:animScale>"#, id(), ms(e.dur / 2.0)),
+        ("mediacall", _) => format!(r#"<p:cmd type="call" cmd="playFrom(0.0)"><p:cBhvr><p:cTn id="{}" dur="{dur}" fill="hold"/>{tgt}</p:cBhvr></p:cmd>"#, id()),
+        ("path", _) => format!(r#"<p:animMotion origin="layout" path="{}" pathEditMode="relative" ptsTypes=""><p:cBhvr><p:cTn id="{}" dur="{dur}" fill="hold"/>{tgt}<p:attrNameLst><p:attrName>ppt_x</p:attrName><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr></p:animMotion>"#,
+                               if e.motion.is_empty() { "M 0 0 L 0 0.25 E" } else { e.motion.as_str() }, id()),
         _ => String::new(),
     };
     let rep = if (e.repeat - 1.0).abs() > 0.001 { format!(r#" repeatCount="{}""#, (e.repeat * 1000.0).round() as i64) } else { String::new() };
@@ -198,16 +238,8 @@ fn effect_xml(e: &Effect, next: &mut u32, group: u32) -> String {
         id(), e.preset, e.class, e.subtype, (e.delay * 1000.0).round() as i64)
 }
 
-/// Replace the slide's main sequence with `effects` (and its build list).
-pub fn write(d: &mut XmlDoc, effects: &[Effect]) {
-    let root = d.root;
-    if let Some(t) = d.child(root, "p:timing") {
-        d.detach(t);
-    }
-    if effects.is_empty() {
-        return;
-    }
-    let mut next = 2u32;
+/// The click groups of a sequence (its first group plays by itself when `auto`).
+fn groups_xml(effects: &[Effect], next: &mut u32, auto: bool) -> String {
     // click groups: a "click" effect starts one; "after" starts a new part of the group;
     // "with" joins the current part
     let mut subs: Vec<Vec<Vec<String>>> = Vec::new();
@@ -215,9 +247,9 @@ pub fn write(d: &mut XmlDoc, effects: &[Effect]) {
         let x = match &e.xml {
             Some(x) => {
                 let node = match e.trigger.as_str() { "with" => "withEffect", "after" => "afterEffect", _ => "clickEffect" };
-                retrigger(x, node, e.delay, &mut next)
+                retrigger(x, node, e.delay, next)
             }
-            None => effect_xml(e, &mut next, 0),
+            None => effect_xml(e, next, 0),
         };
         if e.trigger == "click" || subs.is_empty() {
             subs.push(vec![Vec::new()]);
@@ -228,17 +260,16 @@ pub fn write(d: &mut XmlDoc, effects: &[Effect]) {
     }
     let mut body = String::new();
     for (gi, g) in subs.iter().enumerate() {
-        next += 1;
-        let gid = next;
-        // the first group plays by itself when the slide's first effect isn't on a click
-        let gdelay = if gi == 0 && effects[0].trigger != "click" { "0" } else { "indefinite" };
+        *next += 1;
+        let gid = *next;
+        let gdelay = if gi == 0 && auto { "0" } else { "indefinite" };
         body.push_str(&format!(r#"<p:par><p:cTn id="{gid}" fill="hold"><p:stCondLst><p:cond delay="{gdelay}"/></p:stCondLst><p:childTnLst>"#));
         // each "after" part starts when the parts before it have ended
         let mut start: f64 = 0.0;
         for (si, part) in g.iter().enumerate() {
-            next += 1;
+            *next += 1;
             body.push_str(&format!(r#"<p:par><p:cTn id="{}" fill="hold"><p:stCondLst><p:cond delay="{}"/></p:stCondLst><p:childTnLst>"#,
-                                   next, (start * 1000.0).round() as i64));
+                                   *next, (start * 1000.0).round() as i64));
             for x in part {
                 body.push_str(x);
             }
@@ -247,8 +278,75 @@ pub fn write(d: &mut XmlDoc, effects: &[Effect]) {
         }
         body.push_str("</p:childTnLst></p:cTn></p:par>");
     }
+    body
+}
+
+/// Replace the slide's sequences with `effects` (other timing nodes, such as media, stay).
+pub fn write(d: &mut XmlDoc, effects: &[Effect]) {
+    let root = d.root;
+    // what the timing holds besides the sequences: kept
+    let mut kept: Vec<String> = Vec::new();
+    if let Some(lst) = path(d, root, &["p:timing", "p:tnLst", "p:par", "p:cTn", "p:childTnLst"]) {
+        for c in d.elements(lst).collect::<Vec<_>>() {
+            let kind = if d.name(c) == "p:seq" { d.child(c, "p:cTn").and_then(|t| d.attr(t, "nodeType")).unwrap_or("") } else { "" };
+            if kind != "mainSeq" && kind != "interactiveSeq" {
+                kept.push(d.serialize_node(c));
+            }
+        }
+    }
+    let keep_any = !kept.is_empty() || effects.iter().any(|e| e.class == "mediacall");
+    if let Some(t) = d.child(root, "p:timing") {
+        d.detach(t);
+    }
+    if effects.is_empty() && !keep_any {
+        return;
+    }
+    let mut next = 2u32;
+    let main: Vec<Effect> = effects.iter().filter(|e| e.on == 0).cloned().collect();
+    let mut seq_xml = String::new();
+    if !main.is_empty() {
+        let body = groups_xml(&main, &mut next, main[0].trigger != "click");
+        seq_xml.push_str(&format!(r#"<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{body}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"#));
+    }
+    let mut triggers: Vec<u32> = Vec::new();
+    for e in effects {
+        if e.on != 0 && !triggers.contains(&e.on) {
+            triggers.push(e.on);
+        }
+    }
+    for t in triggers {
+        let fx: Vec<Effect> = effects.iter().filter(|e| e.on == t).cloned().collect();
+        next += 1;
+        let sid = next;
+        let body = groups_xml(&fx, &mut next, true);
+        seq_xml.push_str(&format!(r#"<p:seq concurrent="1" nextAc="seek"><p:cTn id="{sid}" restart="whenNotActive" fill="hold" evtFilter="cancelBubble" nodeType="interactiveSeq"><p:stCondLst><p:cond evt="onClick" delay="0"><p:tgtEl><p:spTgt spid="{t}"/></p:tgtEl></p:cond></p:stCondLst><p:endSync evt="end" delay="0"><p:rtn val="all"/></p:endSync><p:childTnLst>{body}</p:childTnLst></p:cTn><p:nextCondLst><p:cond evt="onClick" delay="0"><p:tgtEl><p:spTgt spid="{t}"/></p:tgtEl></p:cond></p:nextCondLst></p:seq>"#));
+    }
+    // a clip that plays from a media effect needs its media node
+    let shapes = {
+        let mut all = Vec::new();
+        if let Some(tree) = path(d, root, &["p:cSld", "p:spTree"]) {
+            crate::scene::collect_shapes(d, tree, &mut all);
+        }
+        all
+    };
+    for e in effects.iter().filter(|e| e.class == "mediacall") {
+        let mark = format!(r#"spid="{}""#, e.spid);
+        if kept.iter().any(|k| (k.starts_with("<p:video") || k.starts_with("<p:audio")) && k.contains(&mark)) {
+            continue;
+        }
+        let video = shapes.iter().find(|&&n| crate::scene::shape_id(d, n).0 == e.spid)
+            .and_then(|&n| path(d, n, &["p:nvPicPr", "p:nvPr", "a:videoFile"])).is_some();
+        let tag = if video { "p:video" } else { "p:audio" };
+        kept.push(format!(r#"<{tag}><p:cMediaNode vol="80000"{}><p:cTn id="0" fill="hold" display="0"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:endCondLst><p:cond evt="onStopAudio" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:endCondLst></p:cTn><p:tgtEl><p:spTgt spid="{}"/></p:tgtEl></p:cMediaNode></{tag}>"#,
+                          if video { "" } else { r#" showWhenStopped="0""# }, e.spid));
+    }
+    // kept nodes get fresh ids after ours
+    let mut keep = String::new();
+    for x in kept {
+        keep.push_str(&renumber(&x, &mut next));
+    }
     let xml = format!(
-        r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{body}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#);
+        r#"<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>{seq_xml}{keep}</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"#);
     let Some(el) = fragment(d, &xml) else { return };
     // after cSld, clrMapOvr and transition; before extLst
     let at = d.elements(root).position(|c| d.name(c) == "p:extLst")
@@ -301,6 +399,21 @@ fn retrigger(x: &str, node: &str, delay: f64, next: &mut u32) -> String {
         stack.extend(tmp.elements(n).collect::<Vec<_>>().into_iter().rev());
     }
     tmp.serialize_node(par)
+}
+
+/// A timing node with fresh cTn ids.
+fn renumber(x: &str, next: &mut u32) -> String {
+    let Some(mut tmp) = parse_fragment(x) else { return x.to_string() };
+    let Some(top) = tmp.elements(tmp.root).next() else { return x.to_string() };
+    let mut stack = vec![top];
+    while let Some(n) = stack.pop() {
+        if tmp.name(n) == "p:cTn" {
+            *next += 1;
+            tmp.set_attr(n, "id", &next.to_string());
+        }
+        stack.extend(tmp.elements(n).collect::<Vec<_>>().into_iter().rev());
+    }
+    tmp.serialize_node(top)
 }
 
 fn parse_fragment(x: &str) -> Option<XmlDoc> {

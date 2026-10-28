@@ -16,6 +16,11 @@ from .more_ui import AnimationCommands, MoreCommands
 from .master_ui import MasterCommands
 from .review_ui import PictureCommands, ReviewCommands
 from .show_ui import ShowCommands
+from .chart_ui import ChartCommands
+from .smartart_ui import SmartArtCommands
+from .media_ui import MediaCommands
+from .ink_ui import InkCommands
+from .eq_ui import EquationCommands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -35,7 +40,7 @@ MASTER_BLOCKED = {"new-slide", "new-slide-layout", "duplicate-slides", "delete-s
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
+class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtCommands, ChartCommands, ShowCommands, MasterCommands, PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def __init__(self, app, path=None, twin=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
@@ -422,6 +427,11 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
         self.ribbon.show_contextual("Picture Format", bool(pics))
         self.ribbon.show_contextual("Table Design", bool(tables))
         self.ribbon.show_contextual("Table Layout", bool(tables))
+        self.ribbon.show_contextual("Chart Design", len(shapes) == 1 and shapes[0]["geom"] == "chart")
+        self.ribbon.show_contextual("SmartArt Design", len(shapes) == 1 and shapes[0]["geom"] == "smartart")
+        media = len(shapes) == 1 and shapes[0]["kind"] == "pic" and self.current is not None and \
+            self.master_mode is None and self.deck.media_info(self.current, shapes[0]["id"]) is not None
+        self.ribbon.show_contextual("Playback", bool(media))
         if tables and len(shapes) == 1:
             for key in ("firstRow", "lastRow", "bandRow", "firstCol", "lastCol", "bandCol"):
                 self.ribbon.update("tbl-" + key, "true" if self.deck.table_option_value(self.current, shapes[0]["id"], key) else "false")
@@ -1021,8 +1031,15 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
         if st.index is not None and self.view == "normal" and not getattr(st, "custom", False):
             self.go_slide(st.index)
         self.present()
-        if getattr(st, "rehearse", None) is not None:
-            GLib.idle_add(lambda: (self.finish_rehearsal(st), False)[1])
+        def after():
+            if getattr(st, "narration", None):
+                self.keep_narration(st)
+            if getattr(st, "rehearse", None) is not None:
+                self.finish_rehearsal(st, keep=True if getattr(st, "narration", None) else None)
+            if any(getattr(st, "ink", {}).values()):
+                self.keep_show_ink(st)
+            return False
+        GLib.idle_add(after)
 
     def act_toggle_presenter_view(self):
         self.app.settings["presenter_view"] = self.presenter_check.get_active()
@@ -1105,12 +1122,31 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
             if ok:
                 self._insert_picture_bytes(bytes(data), "png", "Picture")
             return
+        grid = table_from_text(text) if (text and mode != "text") else None
+        if grid is not None:
+            self.paste_table(grid)
+            return
         if text:
             sw, sh = self.deck.size()
             sid = self.deck.add_textbox(self.current, sw * 0.1, sh * 0.4, sw * 0.8, 40, text.strip("\n"))
             self.deck.fit_text(self.current, sid, "Paste")
             self.changed(slide=True)
             c.select([sid])
+
+    def paste_table(self, grid):
+        """Cells copied from Folio Sheets (or any spreadsheet: tab-separated rows) become a table."""
+        rows, cols = len(grid), max(len(r) for r in grid)
+        sw, sh = self.deck.size()
+        w = min(sw * 0.8, max(sw * 0.3, cols * sw * 0.12))
+        tid = self.deck.add_table(self.current, rows, cols, (sw - w) / 2, sh * 0.25, w)
+        for r, row in enumerate(grid):
+            for c in range(cols):
+                v = row[c] if c < len(row) else ""
+                if v:
+                    self.deck.set_text(self.current, Presentation.cell_id(tid, r * cols + c), v)
+        self.changed(slide=True)
+        self.canvas.select([tid])
+        return tid
 
     def act_paste_text(self):
         self.act_paste("text")
@@ -1155,6 +1191,7 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
 
     def act_pointer(self):
         self.canvas.insert_mode = None
+        self.canvas.ink_tool = None
 
     def act_draw_shape(self, prst):
         self.canvas.leave_text()
@@ -1217,12 +1254,6 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
             sid = self.deck.add_picture(self.current, data, ext, name, (sw - w) / 2, (sh - h) / 2, w, h)
         self.changed(slide=True)
         self.canvas.select([sid])
-
-    def act_screenshot(self):
-        self.not_available("not-available:Screenshot")
-
-    def act_photo_album(self):
-        self.not_available("not-available:Photo Album")
 
 
     def _insert_text_here(self, text):
@@ -1836,3 +1867,18 @@ class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommand
             t = [s for s in c.shapes if s["ph"] in ("title", "ctrTitle")]
             if t:
                 c.start_text(t[0]["id"], (0, 0))
+
+
+
+def table_from_text(text):
+    """Tab-separated rows (as spreadsheets put on the clipboard) as a grid, or None for ordinary text."""
+    t = text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    lines = t.split("\n")
+    if "\t" not in t or len(lines) > 200:
+        return None
+    grid = [ln.split("\t") for ln in lines]
+    cols = max(len(r) for r in grid)
+    if cols < 2 or cols > 40 or (len(grid) == 1 and cols < 2):
+        return None
+    # a quoted cell with line breaks inside stays one cell
+    return [[c[1:-1].replace('""', '"') if len(c) > 1 and c[0] == c[-1] == '"' else c for c in r] for r in grid]

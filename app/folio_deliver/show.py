@@ -85,23 +85,86 @@ class ShowState:
 
     def play(self, g):
         self.playing = (g, time.time() + (self.trans[4] if self.trans else 0.0))
+        self._start_media(self.player.groups[g] if self.player and g < len(self.player.groups) else [])
         self._tick_anim()
+
+    def _start_media(self, group):
+        """Media effects in a group (Play, narration) start their clip."""
+        sw = getattr(self, "show_window", None)
+        for e, _start in group:
+            if e["class"] == "mediacall" and sw is not None:
+                GLib.idle_add(lambda s=e["spid"]: (sw.toggle_media(s) if s not in sw.media else None, False)[1])
+
+    # ------------------------------------------------------------ triggers
+    def trigger_at(self, sx, sy):
+        """A click on a shape that triggers effects plays its next group of them."""
+        if self.player is None:
+            return False
+        trig = getattr(self, "tplayers", None)
+        if trig is None:
+            trig = self.tplayers = {}
+            self._tplayers_slide = self.index
+        if self._tplayers_slide != self.index:
+            trig.clear()
+            self._tplayers_slide = self.index
+        for s in reversed(self.deck.shapes(self.index)):
+            if not (s["x"] <= sx <= s["x"] + s["w"] and s["y"] <= sy <= s["y"] + s["h"]):
+                continue
+            ons = {e["on"] for e in self.deck.animations(self.index) if e.get("on")}
+            if s["id"] not in ons:
+                continue
+            from .anim import Player
+            if s["id"] not in trig:
+                trig[s["id"]] = [Player(self.deck, self.index, on=s["id"]), 0, None]
+            tp = trig[s["id"]]
+            pl, step, _playing = tp
+            if step >= len(pl.groups):
+                tp[1] = 0
+                step = 0
+            tp[2] = (step, time.time())
+            self._tick_anim()
+            return True
+        return False
+
+    def trigger_state(self):
+        """Shape states from the triggered sequences (on top of the main sequence's)."""
+        out = {}
+        now = time.time()
+        for sid, tp in (getattr(self, "tplayers", None) or {}).items():
+            if getattr(self, "_tplayers_slide", None) != self.index:
+                break
+            pl, step, playing = tp
+            if playing is not None:
+                g, t0 = playing
+                t = now - t0
+                if t >= pl.length(g):
+                    tp[1] = g + 1
+                    tp[2] = None
+                    out.update(pl.state(g + 1))
+                else:
+                    out.update(pl.state(g, g, t))
+            else:
+                out.update(pl.state(step))
+        return out
 
     def _tick_anim(self):
         if getattr(self, "_anim_src", None):
             return
 
         def tick():
-            if self.playing is None or self.ended:
-                self._anim_src = None
-                return False
-            g, start = self.playing
-            if time.time() - start >= self.player.length(g):
-                self.step = g + 1
-                self.playing = None
+            if self.ended or (self.playing is None and not self._triggers_moving()):
                 self._anim_src = None
                 self.changed()
                 return False
+            if self.playing is not None:
+                g, start = self.playing
+                if time.time() - start >= self.player.length(g):
+                    self.step = g + 1
+                    self.playing = None
+                    if not self._triggers_moving():
+                        self._anim_src = None
+                        self.changed()
+                        return False
             self.changed()
             return True
         self._anim_src = GLib.timeout_add(16, tick)
@@ -112,8 +175,19 @@ class ShowState:
             return ("static",), None
         if self.playing is not None:
             g, start = self.playing
-            return None, self.player.state(self.step, g, max(0.0, time.time() - start))
-        return ("step", self.step), self.player.state(self.step)
+            key, st = None, self.player.state(self.step, g, max(0.0, time.time() - start))
+        else:
+            key, st = ("step", self.step), self.player.state(self.step)
+        tr = self.trigger_state()
+        if tr:
+            st = dict(st)
+            st.update(tr)
+            moving = any(tp[2] is not None for tp in self.tplayers.values())
+            key = None if (key is None or moving) else ("step", self.step, tuple(sorted((k, tp[1]) for k, tp in self.tplayers.items())))
+        return key, st
+
+    def _triggers_moving(self):
+        return any(tp[2] is not None for tp in (getattr(self, "tplayers", None) or {}).values())
 
     @property
     def index(self):
@@ -329,7 +403,11 @@ class ShowWindow(Gtk.Window):
         self.area.connect("button-release-event", self.on_release)
         self.area.connect("motion-notify-event", self.on_motion)
         self.area.connect("scroll-event", self.on_scroll)
-        self.add(self.area)
+        self.overlay = Gtk.Overlay()
+        self.overlay.add(self.area)
+        self.add(self.overlay)
+        self.media = {}              # spid -> (player, widget)
+        self._media_slide = st.index
         self.connect("key-press-event", lambda w, e: on_show_key(st, e, self))
         self.laser = None
         self.stroke = None
@@ -360,10 +438,70 @@ class ShowWindow(Gtk.Window):
 
     def refresh(self):
         if self.st.ended:
+            self.stop_media()
             self.destroy()
             return
+        if self.st.index != self._media_slide:
+            self.stop_media()
+            self._media_slide = self.st.index
         self._set_cursor()
         self.area.queue_draw()
+
+    # ------------------------------------------------------------ video and audio
+    def stop_media(self):
+        for pl, w in list(self.media.values()):
+            pl.stop()
+            if w is not None:
+                self.overlay.remove(w)
+        self.media = {}
+
+    def toggle_media(self, spid):
+        """Play (or pause) a video or audio clip on the slide; video plays in its place."""
+        st = self.st
+        if spid in self.media:
+            self.media[spid][0].toggle()
+            return True
+        from .media_ui import MediaPlayer, gst
+        kind, path = st.win.media_file(st.index, spid)
+        if path is None or gst() is None:
+            return False
+        pl = MediaPlayer(path, video=kind == "video")
+        w = None
+        if kind == "video" and pl.widget is not None:
+            s = [x for x in st.deck.shapes(st.index) if x["id"] == spid]
+            if s:
+                s = s[0]
+                aw, ah = self.area.get_allocated_width(), self.area.get_allocated_height()
+                sw, sh = st.deck.size()
+                scale = min(aw / sw, ah / sh)
+                ox, oy = (aw - sw * scale) / 2, (ah - sh * scale) / 2
+                w = pl.widget
+                w.set_halign(Gtk.Align.START)
+                w.set_valign(Gtk.Align.START)
+                w.set_margin_start(int(ox + s["x"] * scale))
+                w.set_margin_top(int(oy + s["y"] * scale))
+                w.set_size_request(int(s["w"] * scale), int(s["h"] * scale))
+                self.overlay.add_overlay(w)
+                w.show()
+
+        def ended():
+            if spid in self.media:
+                _p, ww = self.media.pop(spid)
+                if ww is not None:
+                    self.overlay.remove(ww)
+        pl.on_end = ended
+        self.media[spid] = (pl, w)
+        pl.play()
+        return True
+
+    def media_at(self, x, y):
+        st = self.st
+        sx, sy = self.to_slide(x, y)
+        for s in reversed(st.deck.shapes(st.index)):
+            if s["kind"] == "pic" and s["x"] <= sx <= s["x"] + s["w"] and s["y"] <= sy <= s["y"] + s["h"]:
+                if st.deck.media_info(st.index, s["id"]):
+                    return s["id"]
+        return None
 
     def _set_cursor(self):
         w = self.area.get_window()
@@ -445,6 +583,11 @@ class ShowWindow(Gtk.Window):
         t = self.link_at(ev.x, ev.y)
         if t:
             self.follow(t)
+            return True
+        m = self.media_at(ev.x, ev.y)
+        if m is not None and self.toggle_media(m):
+            return True
+        if st.trigger_at(*self.to_slide(ev.x, ev.y)):
             return True
         if st.tool == "laser" or st.no_click:
             return True
