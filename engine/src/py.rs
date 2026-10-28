@@ -149,7 +149,7 @@ impl PyPresentation {
             }
         }
         let part = self.deck.slide_part(i).map_err(err)?;
-        let (w, h) = self.size();
+        let (w, h) = self.deck.page_size(&part);
         let pw = ((w * scale).round() as i32).max(1);
         let ph = ((h * scale).round() as i32).max(1);
         let mut surf = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).map_err(err)?;
@@ -231,7 +231,7 @@ impl PyPresentation {
 
     /// A layout's picture (for the New Slide gallery): (w, h, stride, bytes).
     fn render_part<'py>(&mut self, py: Python<'py>, part: &str, scale: f64) -> PyResult<(i32, i32, i32, Bound<'py, PyBytes>)> {
-        let (w, h) = self.size();
+        let (w, h) = self.deck.page_size(part);
         let pw = ((w * scale).round() as i32).max(1);
         let ph = ((h * scale).round() as i32).max(1);
         let mut surf = cairo::ImageSurface::create(cairo::Format::ARgb32, pw, ph).map_err(err)?;
@@ -375,6 +375,11 @@ impl PyPresentation {
             d.set_item("font", r.latin.unwrap_or_default())?;
             d.set_item("color", r.color.map(|c| format!("{:06X}", c.rgb)))?;
             d.set_item("baseline", r.baseline.unwrap_or(0.0))?;
+            if let Some(l) = r.link {
+                let (rid, act) = l.split_once('\t').unwrap_or((l.as_str(), ""));
+                let part = self.deck.slide_part(i).map_err(err)?;
+                d.set_item("link", self.deck.link_target(&part, rid, act))?;
+            }
         }
         Ok(d)
     }
@@ -554,6 +559,160 @@ impl PyPresentation {
 
     fn set_alt_text(&mut self, i: usize, id: u32, text: &str) -> PyResult<()> {
         self.deck.set_alt_text(i, id, text).map_err(err)
+    }
+
+    // --------------------------------------------------------- Slide Master view
+    /// Index base for design parts: slide index DESIGN + k is design part k.
+    #[staticmethod]
+    fn design_base() -> usize {
+        crate::model::DESIGN
+    }
+
+    /// [(k, part, kind, name, slides using it)]; kind master | layout | notesMaster | handoutMaster.
+    fn design_parts(&mut self) -> Vec<(usize, String, String, String, usize)> {
+        self.deck.design_parts()
+    }
+
+    #[pyo3(signature = (master, after=None, name="Custom Layout"))]
+    fn add_layout(&mut self, master: &str, after: Option<&str>, name: &str) -> PyResult<String> {
+        self.deck.add_layout(master, after, name).map_err(err)
+    }
+
+    fn duplicate_design(&mut self, part: &str) -> PyResult<String> {
+        self.deck.duplicate_design(part).map_err(err)
+    }
+
+    fn delete_design(&mut self, part: &str) -> PyResult<()> {
+        self.deck.delete_design(part).map_err(err)
+    }
+
+    fn rename_design(&mut self, part: &str, name: &str) -> PyResult<()> {
+        self.deck.rename_design(part, name).map_err(err)
+    }
+
+    fn preserved(&mut self, part: &str) -> bool {
+        self.deck.preserved(part)
+    }
+
+    fn set_preserved(&mut self, part: &str, on: bool) -> PyResult<()> {
+        self.deck.set_preserved(part, on).map_err(err)
+    }
+
+    fn design_placeholders(&mut self, part: &str) -> Vec<String> {
+        self.deck.design_placeholders(part)
+    }
+
+    fn design_toggle(&mut self, part: &str, which: &str, on: bool) -> PyResult<()> {
+        self.deck.design_toggle(part, which, on).map_err(err)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_layout_placeholder(&mut self, part: &str, kind: &str, x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.add_layout_placeholder(part, kind, x, y, w, h).map_err(err)
+    }
+
+    fn ensure_handout_master(&mut self) -> PyResult<String> {
+        self.deck.ensure_handout_master().map_err(err)
+    }
+
+    fn notes_master_part(&mut self) -> PyResult<String> {
+        self.deck.notes_master_part().map_err(err)
+    }
+
+    fn shows_master_shapes(&mut self, part: &str) -> bool {
+        self.deck.shows_master_shapes(part)
+    }
+
+    fn set_show_master_shapes(&mut self, part: &str, on: bool) -> PyResult<()> {
+        self.deck.set_show_master_shapes(part, on).map_err(err)
+    }
+
+    fn layouts_of(&mut self, master: &str) -> Vec<String> {
+        self.deck.layouts_of(master)
+    }
+
+    fn page_size(&mut self, part: &str) -> (f64, f64) {
+        self.deck.page_size(part)
+    }
+
+    // --------------------------------------------------------- reuse, change picture, show settings
+    /// The slides of a presentation file: [(index, layout name)].
+    #[staticmethod]
+    fn file_slides(path: &str) -> PyResult<Vec<(usize, String)>> {
+        let b = std::fs::read(path).map_err(err)?;
+        Deck::file_slides(&b).map_err(err)
+    }
+
+    #[pyo3(signature = (path, which, after, fallback))]
+    fn reuse_slides(&mut self, path: &str, which: Vec<usize>, after: Option<usize>, fallback: &str) -> PyResult<usize> {
+        let b = std::fs::read(path).map_err(err)?;
+        self.deck.reuse_slides(&b, &which, after, fallback).map_err(err)
+    }
+
+    fn replace_picture(&mut self, i: usize, id: u32, data: Vec<u8>, ext: &str) -> PyResult<()> {
+        self.deck.replace_picture(i, id, data, ext).map_err(err)
+    }
+
+    /// (kind, loop, no animation, from, to, use timings, pen colour)
+    fn show_settings(&mut self) -> (String, bool, bool, i64, i64, bool, String) {
+        self.deck.show_settings()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_show_settings(&mut self, kind: &str, looped: bool, no_anim: bool, from: i64, to: i64, timings: bool, pen: &str) -> PyResult<()> {
+        self.deck.set_show_settings(kind, looped, no_anim, from, to, timings, pen).map_err(err)
+    }
+
+    // --------------------------------------------------------- links, crop, comments
+    /// Link text a..b ((para, char)) to an address, "slide:N", "next", "prev", "first", "last",
+    /// "end"; "" removes it.
+    fn set_link(&mut self, i: usize, id: u32, a: (usize, usize), b: (usize, usize), target: &str) -> PyResult<()> {
+        self.deck.set_link(i, id, a, b, target).map_err(err)
+    }
+
+    fn link_at(&mut self, i: usize, id: u32, para: usize, off: usize) -> Option<String> {
+        self.deck.link_at_pos(i, id, para, off)
+    }
+
+    fn set_shape_link(&mut self, i: usize, id: u32, target: &str) -> PyResult<()> {
+        self.deck.set_shape_link(i, id, target).map_err(err)
+    }
+
+    fn shape_link(&mut self, i: usize, id: u32) -> Option<String> {
+        self.deck.shape_link(i, id)
+    }
+
+    fn picture_data<'py>(&mut self, py: Python<'py>, i: usize, id: u32) -> Option<Bound<'py, pyo3::types::PyBytes>> {
+        self.deck.picture_data(i, id).map(|b| pyo3::types::PyBytes::new_bound(py, &b))
+    }
+
+    /// A picture's crop: fractions cut from (left, top, right, bottom).
+    fn crop(&mut self, i: usize, id: u32) -> Option<(f64, f64, f64, f64)> {
+        self.deck.crop(i, id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_crop(&mut self, i: usize, id: u32, l: f64, t: f64, r: f64, b: f64, x: f64, y: f64, w: f64, h: f64) -> PyResult<()> {
+        self.deck.set_crop(i, id, l, t, r, b, x, y, w, h).map_err(err)
+    }
+
+    /// [(idx, author, initials, date, text, x, y)]
+    fn comments(&mut self, i: usize) -> Vec<(u32, String, String, String, String, f64, f64)> {
+        self.deck.comments(i)
+    }
+
+    #[pyo3(signature = (i, text, author, initials, x=10.0, y=10.0))]
+    fn add_comment(&mut self, i: usize, text: &str, author: &str, initials: &str, x: f64, y: f64) -> PyResult<u32> {
+        self.deck.add_comment(i, text, author, initials, x, y).map_err(err)
+    }
+
+    fn edit_comment(&mut self, i: usize, idx: u32, text: &str) -> PyResult<()> {
+        self.deck.edit_comment(i, idx, text).map_err(err)
+    }
+
+    #[pyo3(signature = (i, idx=None))]
+    fn delete_comment(&mut self, i: usize, idx: Option<u32>) -> PyResult<()> {
+        self.deck.delete_comment(i, idx).map_err(err)
     }
 
     fn rename_shape(&mut self, i: usize, id: u32, name: &str) -> PyResult<()> {

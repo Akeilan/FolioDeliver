@@ -19,7 +19,12 @@ struct Step {
     slides: Vec<String>,
 }
 
+/// Slide indexes from here on stand for the design parts (masters, layouts, notes and handout masters).
+pub const DESIGN: usize = 1 << 24;
+
 pub struct Deck {
+    /// masters and their layouts in order, then the notes and handout masters
+    pub design: Vec<String>,
     pub pkg: Package,
     pub pres: String,
     pub slides: Vec<String>,
@@ -58,7 +63,7 @@ impl Deck {
         if !pkg.has(&pres) {
             return Err("this file has no presentation in it".into());
         }
-        let mut d = Deck { pkg, pres, slides: Vec::new(), cx: 12192000.0, cy: 6858000.0, undo: Vec::new(),
+        let mut d = Deck { design: Vec::new(), pkg, pres, slides: Vec::new(), cx: 12192000.0, cy: 6858000.0, undo: Vec::new(),
                            redo: Vec::new(), open_step: None, version: 1, modified: false, path: String::new(), typing_chain: false };
         d.read_slides();
         Ok(d)
@@ -84,6 +89,37 @@ impl Deck {
             }
         }
         self.slides = out.into_iter().filter(|p| self.pkg.has(p)).collect();
+        self.refresh_design();
+    }
+
+    /// The design parts list (masters, each followed by its layouts; then notes and handout masters).
+    pub fn refresh_design(&mut self) {
+        let mut v = Vec::new();
+        for m in self.masters() {
+            v.push(m.clone());
+            v.extend(self.layouts_of(&m));
+        }
+        let pres = self.pres.clone();
+        for k in ["/notesMaster", "/handoutMaster"] {
+            if let Some(p) = self.pkg.related(&pres, k) {
+                v.push(p);
+            }
+        }
+        self.design = v.into_iter().filter(|p| self.pkg.has(p)).collect();
+    }
+
+    /// The page size (points) a part is drawn on: notes and handout pages have their own.
+    pub fn page_size(&mut self, part: &str) -> (f64, f64) {
+        if part.contains("notesMaster") || part.contains("handoutMaster") || part.contains("notesSlide") {
+            let pres = self.pres.clone();
+            if let Ok(d) = self.pkg.xml(&pres) {
+                if let Some(n) = d.child(d.root, "p:notesSz") {
+                    return (emu(d, n, "cx").unwrap_or(6858000.0) / EMU_PT, emu(d, n, "cy").unwrap_or(9144000.0) / EMU_PT);
+                }
+            }
+            return (540.0, 720.0);
+        }
+        (self.cx / EMU_PT, self.cy / EMU_PT)
     }
 
     pub fn layout_of(&mut self, slide: &str) -> Option<String> {

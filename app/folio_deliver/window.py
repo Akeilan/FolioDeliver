@@ -13,6 +13,7 @@ from .canvas import SlideCanvas
 from .core import Presentation, surface_from
 from .dialogs import Dialogs
 from .more_ui import AnimationCommands, MoreCommands
+from .review_ui import PictureCommands, ReviewCommands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -27,8 +28,8 @@ CT_MAIN = {
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
-    def __init__(self, app, path=None):
+class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
+    def __init__(self, app, path=None, twin=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
         self.path = None
@@ -110,6 +111,7 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         right.pack2(nov, False, True)
         self.vpaned = right
         normal = Gtk.Paned()
+        self.normal_paned = normal
         normal.pack1(self.pane, False, False)
         normal.pack2(right, True, False)
         self.stack.add_named(normal, "normal")
@@ -123,6 +125,8 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         self.reading.connect("draw", self._draw_reading)
         self.reading.connect("button-press-event", lambda *_: (self.go_slide(self.current + 1), True)[1])
         self.stack.add_named(self.reading, "reading")
+        self.build_outline_view()
+        self.build_notes_page()
         self.outer.pack_start(self.stack, True, True, 0)
         self.status = StatusBar(self)
         self.outer.pack_start(self.status, False, False, 0)
@@ -145,7 +149,13 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         self.connect("configure-event", self._remember_geometry)
         self.show_all()
         self.backstage.hide()
-        if path:
+        if twin is not None:
+            # New Window: a second window on the same presentation
+            self.deck = twin.deck
+            self.path, self.untitled, self.imported_from = twin.path, twin.untitled, twin.imported_from
+            self._after_load()
+            self.go_slide(twin.current or 0)
+        elif path:
             self.load(path)
         else:
             self.new_deck()
@@ -290,6 +300,9 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
 
     def update_title(self):
         name = self.title_text()
+        tw = [w for w in getattr(self.app, "windows", []) if w.deck is self.deck] if getattr(self, "deck", None) else []
+        if len(tw) > 1 and self in tw:
+            name += ":%d" % (tw.index(self) + 1)
         if self.imported_from:
             name += "  [Compatibility Mode]"
         self.title_label.set_text("%s - %s" % (name, APP_NAME))
@@ -342,6 +355,7 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         i = max(0, min(n - 1, i))
         if i != self.current:
             self._save_notes()
+            self.canvas.finish_crop()
             self.canvas.leave_text()
             self.canvas.sel = []
         self.current = i
@@ -357,6 +371,10 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         self.status.set_slide(i, n)
         self.selection_changed()
         self._sync_transition()
+        if getattr(self, "comments_pane", None) is not None:
+            self.comments_pane.refresh()
+        if getattr(self, "view", None) == "notespage":
+            self.notes_page_pic.queue_draw()
 
     def changed(self, slide=False, structure=False, text=False, all_slides=False):
         """After an edit: redraw what it touched."""
@@ -375,6 +393,8 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         self.sorter.queue()
         self.update_title()
         self.status.set_slide(self.current or 0, self.deck.slide_count())
+        for t in self.twins():
+            t.twin_changed()
         if not text:
             self.selection_changed()
         else:
@@ -535,7 +555,27 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         self.imported_from = None
         self.app.add_recent(self.path)
         self.update_title()
+        for t in self.twins():
+            t.path, t.imported_from = self.path, None
+            t.update_title()
         return True
+
+    def twins(self):
+        """The other windows on this presentation (View > New Window)."""
+        return [w for w in self.app.windows if w is not self and w.deck is self.deck]
+
+    def twin_changed(self):
+        """Another window on this presentation changed it."""
+        n = self.deck.slide_count()
+        self.thumbs.forget()
+        if self.current is not None and self.current >= n:
+            self.current = n - 1 if n else None
+        self.canvas.invalidate()
+        self.pane.relayout()
+        self.sorter.relayout()
+        self.update_title()
+        if self.current is not None:
+            self._show_notes()
 
     def act_save_as(self, kind="pptx"):
         self._save_notes()
@@ -617,7 +657,7 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
 
     def confirm_close(self):
         self._save_notes()
-        if not self.deck.modified:
+        if not self.deck.modified or self.twins():
             return True
         ans = self.dialogs.confirm_save(self.doc_name())
         if ans == "save":
@@ -750,8 +790,6 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
             self.changed(structure=True)
             self.go_slide(at, keep_selection=True)
 
-    def act_reuse_slides(self):
-        self.not_available("not-available:Reuse Slides")
 
     def act_slides_from_outline(self):
         """A text outline (one line a slide title, indented lines its bullets) as new slides."""
@@ -803,8 +841,25 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def set_view(self, view):
         self._save_notes()
         self.canvas.leave_text()
+        self.canvas.finish_crop()
+        if getattr(self, "view", None) == "outline":
+            self.outline.apply()
         self.view = view
-        self.stack.set_visible_child_name(view)
+        np = self.normal_paned
+        left = np.get_child1()
+        want = self.outline if view == "outline" else self.pane
+        if view == "outline" and left is self.pane:
+            self._pane_width = np.get_position()
+        if left is not want:
+            np.remove(left)
+            np.pack1(want, False, False)
+            want.show_all()
+            np.set_position(int(self.get_allocated_width() * 0.32) if view == "outline" else self._pane_width)
+        if view == "outline":
+            self.outline.load()
+        elif view == "notespage":
+            self.notes_page_pic.queue_draw()
+        self.stack.set_visible_child_name("normal" if view == "outline" else view)
         self.status.set_view(view)
         if view == "sorter":
             self.sorter.selected = list(self.pane.selected)
@@ -812,7 +867,10 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         elif view == "normal":
             self.pane.selected = list(self.sorter.selected) or [self.current]
             self.pane.relayout()
-        GLib.idle_add(self.focus_document)
+        if view == "outline":
+            GLib.idle_add(lambda: (self.outline.view.grab_focus(), False)[1])
+        else:
+            GLib.idle_add(self.focus_document)
 
     def act_view_normal(self):
         self.set_view("normal")
@@ -822,12 +880,6 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
 
     def act_view_reading(self):
         self.set_view("reading")
-
-    def act_view_outline(self):
-        self.not_available("not-available:Outline View")
-
-    def act_view_notes_page(self):
-        self.not_available("not-available:Notes Page view")
 
     def _draw_reading(self, area, cr):
         from .show import draw_slide
@@ -893,7 +945,26 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         d.destroy()
 
     def act_new_window(self):
-        self.not_available("not-available:New Window")
+        self._save_notes()
+        w = DeliverWindow(self.app, twin=self)
+        self.app.windows.append(w)
+        for t in [self] + self.twins():
+            t.update_title()
+        w.present()
+        return w
+
+    def act_arrange_all(self):
+        """Side by side, filling the screen."""
+        ws = [w for w in self.app.windows]
+        disp = Gdk.Display.get_default()
+        mon = disp.get_monitor_at_window(self.get_window()) if self.get_window() else disp.get_monitor(0)
+        g = mon.get_workarea()
+        n = len(ws)
+        for k, w in enumerate(ws):
+            w.unmaximize()
+            ww = g.width // n
+            w.move(g.x + k * ww, g.y)
+            w.resize(ww, g.height)
 
     def act_switch_windows(self):
         m = Gtk.Menu()
@@ -940,8 +1011,6 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
         except OSError:
             pass
 
-    def act_setup_show(self):
-        self.not_available("not-available:Set Up Slide Show")
 
     # clipboard
     def act_copy(self):
@@ -1130,11 +1199,6 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def act_photo_album(self):
         self.not_available("not-available:Photo Album")
 
-    def act_insert_link(self):
-        self.not_available("not-available:Links")
-
-    def act_change_picture(self):
-        self.not_available("not-available:Change Picture")
 
     def _insert_text_here(self, text):
         c = self.canvas
@@ -1505,19 +1569,25 @@ class DeliverWindow(AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def context_menu(self, ev, shape):
         c = self.canvas
         items = []
+        link = self.current_link() if (c.edit is not None or shape is not None) else None
+        link_items = ([("Edit Link...", "insert-link"), ("Open Link", "open-link"), ("Copy Link", "copy-link"),
+                       ("Remove Link", "remove-link")] if link else [("Link...", "insert-link")])
         if c.edit is not None:
             items = [("Cut", "cut"), ("Copy", "copy"), ("Paste", "paste"), None, ("Font...", "font-dialog"),
-                     ("Paragraph...", "paragraph-dialog"), ("Bullets", "bullets"), ("Numbering", "numbering")]
+                     ("Paragraph...", "paragraph-dialog"), ("Bullets", "bullets"), ("Numbering", "numbering"), None] + link_items + \
+                    [None, ("New Comment", "new-comment")]
         elif shape is not None:
             items = [("Cut", "cut"), ("Copy", "copy"), ("Paste", "paste"), None,
                      ("Group", "group"), ("Ungroup", "ungroup"), None,
                      ("Bring to Front", "order:front"), ("Send to Back", "order:back"), None,
                      ("Edit Alt Text...", "alt-text"), ("Size and Position...", "format-shape"),
-                     ("Format Shape...", "format-shape")]
+                     ("Format Shape...", "format-shape"), None] + link_items + [("New Comment", "new-comment")]
+            if shape["kind"] == "pic":
+                items[3:3] = [("Crop", "crop")]
         else:
             items = [("Paste", "paste"), None, ("Layout", [(n, "set-layout:" + p) for _m, ls in self.deck.layouts() for p, n in ls]),
                      ("Reset Slide", "reset-slide"), None, ("Ruler", "toggle-ruler-menu"), ("Grid and Guides...", "toggle-grid-menu"),
-                     None, ("Format Background...", "format-background"), ("New Comment", "not-available:Comments")]
+                     None, ("Format Background...", "format-background"), ("New Comment", "new-comment")]
         self._popup(ev, items)
 
     def slide_menu(self, ev, i):

@@ -110,7 +110,7 @@ not-available:Icons	NOT_YET
 not-available:SmartArt	NOT_YET
 not-available:Insert Chart	NOT_YET
 insert-link	OK
-not-available:Comments	NOT_YET
+new-comment	OK
 draw-textbox	OK
 header-footer	OK
 wordart	OK
@@ -234,6 +234,12 @@ not-available:Create a Video	NOT_YET
 spelling	OK
 not-available:Thesaurus	NOT_YET
 accessibility	OK
+delete-comment	OK
+delete-comments-slide	OK
+delete-comments-all	OK
+prev-comment	OK
+next-comment	OK
+show-comments	OK
 view-normal	OK
 view-outline	OK
 view-sorter	OK
@@ -271,7 +277,12 @@ table-insert:left	OK
 table-insert:right	OK
 change-picture	OK
 not-available:Reset Picture	NOT_YET
-not-available:Crop	NOT_YET
+crop	OK
+crop-aspect:1:1	OK
+crop-aspect:4:3	OK
+crop-aspect:16:9	OK
+crop-aspect:3:4	OK
+crop-reset	OK
 set-layout:ppt/slideLayouts/slideLayout2.xml	OK
 new-slide-layout:ppt/slideLayouts/slideLayout6.xml	OK
 draw-shape:ellipse	OK

@@ -181,8 +181,7 @@ impl Painter {
     /// Draw slide `part` with its top-left at the origin, in points (scale the context first).
     pub fn draw(&mut self, deck: &mut Deck, part: &str, cr: &cairo::Context, opts: &Opts) -> Vec<ShapeInfo> {
         let ctx = scene::context(deck, part);
-        let w = deck.cx / EMU_PT;
-        let h = deck.cy / EMU_PT;
+        let (w, h) = deck.page_size(part);
         let num = deck.slides.iter().position(|s| s == part).map(|i| i + 1).unwrap_or(0);
         let env = Env { slide_num: num, date: chrono::Local::now().format("%-m/%-d/%Y").to_string(), font_scale: 1.0, spc_reduction: 0.0 };
         let mut parts: Vec<(String, XmlDoc)> = Vec::new();
@@ -263,6 +262,23 @@ impl Painter {
                     continue;
                 }
                 let info = self.draw_item(deck, &ctx, cr, &item, &env, opts, 0, is_slide);
+                // a notes page's slide image
+                if is_slide && scene::ph_of(dom, n).map(|p| p.kind == "sldImg").unwrap_or(false) {
+                    let slide = if part.contains("notesSlide") { deck.pkg.related(part, "/slide") } else { deck.slides.first().cloned() };
+                    if let Some(sl) = slide {
+                        if sl != part && !sl.contains("notes") {
+                            let (x, y, bw, bh, ..) = scene::shape_box(deck, &ctx, p, n);
+                            let (sw, sh) = (deck.cx / EMU_PT, deck.cy / EMU_PT);
+                            let k = (bw / sw).min(bh / sh);
+                            cr.save().ok();
+                            cr.translate(x + (bw - sw * k) / 2.0, y + (bh - sh * k) / 2.0);
+                            cr.scale(k, k);
+                            let sub = Opts { edit: false, hide: None, ..Default::default() };
+                            self.draw(deck, &sl, cr, &sub);
+                            cr.restore().ok();
+                        }
+                    }
+                }
                 if is_slide {
                     infos.extend(info);
                 }

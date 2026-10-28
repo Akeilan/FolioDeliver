@@ -7,5 +7,8 @@ pub mod render;
 pub mod edit;
 pub mod edit2;
 pub mod timing;
+pub mod edit3;
+pub mod edit4;
+pub mod edit5;
 #[cfg(feature = "python")]
 pub mod py;
