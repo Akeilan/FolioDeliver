@@ -13,7 +13,9 @@ from .canvas import SlideCanvas
 from .core import Presentation, surface_from
 from .dialogs import Dialogs
 from .more_ui import AnimationCommands, MoreCommands
+from .master_ui import MasterCommands
 from .review_ui import PictureCommands, ReviewCommands
+from .show_ui import ShowCommands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -25,10 +27,15 @@ CT_MAIN = {
     "ppsx": "application/vnd.openxmlformats-officedocument.presentationml.slideshow.main+xml",
     "potx": "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
 }
+# slide commands a master view doesn't offer (PowerPoint greys them out)
+MASTER_BLOCKED = {"new-slide", "new-slide-layout", "duplicate-slides", "delete-slides", "hide-slide", "slide-up", "slide-down",
+                  "reuse-slides", "slides-from-outline", "show-start", "show-current", "view-sorter", "view-reading",
+                  "view-outline", "view-notes-page", "set-layout", "reset-slide", "add-section", "new-comment",
+                  "transition", "anim", "anim-add", "setup-show", "toggle-presenter-view", "rehearse-timings"}
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
+class DeliverWindow(ShowCommands, MasterCommands, PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def __init__(self, app, path=None, twin=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
@@ -347,6 +354,8 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
             self.canvas.area.grab_focus()
 
     def go_slide(self, i, keep_selection=False):
+        if self.master_mode is not None:
+            return
         n = self.deck.slide_count()
         if n == 0:
             self.current = None
@@ -388,6 +397,8 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
             self.sorter.relayout()
         if self.current is not None and self.current < self.deck.slide_count():
             self.thumbs.forget(self.deck.slide_parts()[self.current])
+        if self.master_mode is not None:
+            self.master_changed()
         self.canvas.invalidate()
         self.pane.queue()
         self.sorter.queue()
@@ -452,7 +463,7 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
     # ------------------------------------------------------------ notes
     def _show_notes(self):
         self._notes_quiet = True
-        has = self.current is not None and self.current < self.deck.slide_count()
+        has = self.current is not None and self.current < self.deck.slide_count() and self.master_mode is None
         txt = self.deck.notes(self.current) if has else ""
         # the notes belong to this slide, wherever it moves
         self._notes_part = self.deck.slide_parts()[self.current] if has else None
@@ -488,6 +499,9 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
         if cmd is None:
             return None
         name, _, arg = cmd.partition(":")
+        if self.master_mode is not None and name in MASTER_BLOCKED:
+            self.dialogs.info("Close Master View to use this.")
+            return None
         fn = getattr(self, "act_" + name.replace("-", "_"), None)
         if fn is None:
             return self.not_available(cmd)
@@ -509,6 +523,10 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
 
     def act_not_available(self, label):
         self.not_available("not-available:" + label)
+
+    def act_out_of_scope(self, label):
+        """Features Folio leaves out on purpose."""
+        self.dialogs.info("“%s” isn't part of %s: it doesn't run macros or add-ins." % (label, APP_NAME) if label == "Macros" else "“%s” isn't part of %s." % (label, APP_NAME))
 
     # file
     def act_new(self):
@@ -1000,9 +1018,11 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
         st.presenter_window = show.PresenterWindow(st, None)
 
     def show_ended(self, st):
-        if st.index is not None and self.view == "normal":
+        if st.index is not None and self.view == "normal" and not getattr(st, "custom", False):
             self.go_slide(st.index)
         self.present()
+        if getattr(st, "rehearse", None) is not None:
+            GLib.idle_add(lambda: (self.finish_rehearsal(st), False)[1])
 
     def act_toggle_presenter_view(self):
         self.app.settings["presenter_view"] = self.presenter_check.get_active()
@@ -1020,19 +1040,25 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
             if t:
                 Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(t.replace("\x0b", "\n"), -1)
                 self.clip = {"kind": "text", "text": t}
+                self.remember_clip(self.clip, t.replace("\x0b", " ").replace("\n", " ")[:60])
             return
         if c.sel:
             xml = self.deck.shapes_xml(self.current, c.sel)
             texts = []
             for sid in c.sel:
                 texts += self.deck.paragraphs(self.current, sid)
-            self.clip = {"kind": "shapes", "xml": xml, "deck": id(self.deck), "slide": self.current}
+            media = [(a, b, c_, bytes(d_), e, f) for a, b, c_, d_, e, f in self.deck.shape_media(self.current, xml)]
+            self.clip = {"kind": "shapes", "xml": xml, "deck": id(self.deck), "slide": self.current, "media": media,
+                         "text": "\n".join(texts)}
             self.app.clip = self.clip
             Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text("\n".join(texts), -1)
             self._clip_text = "\n".join(texts)
+            names = [s["name"] for s in (c.shape(x) for x in c.sel) if s]
+            self.remember_clip(self.clip, ", ".join(names)[:60] or "Objects")
         elif self.view == "sorter" or self.pane.area.has_focus():
             self.clip = {"kind": "slides", "idx": self._selected_slides(), "deck": id(self.deck)}
             self.app.clip = self.clip
+            self.remember_clip(self.clip, "Slide " + ", ".join(str(i + 1) for i in self.clip["idx"]))
 
     def act_cut(self):
         c = self.canvas
@@ -1068,9 +1094,8 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
         if clip and clip.get("kind") == "shapes" and (text is None or text == getattr(self, "_clip_text", None)):
             same = clip.get("slide") == self.current and clip.get("deck") == id(self.deck)
             off = 12.0 if same else 0.0
-            if clip.get("deck") != id(self.deck) and "r:embed" in clip["xml"]:
-                self.dialogs.info("Pictures pasted from another presentation aren't available yet; the other objects are pasted.")
-            new = self.deck.paste_shapes(self.current, clip["xml"], off, off)
+            # pictures and links come along, from this presentation or another
+            new = self.deck.paste_shapes_media(self.current, clip["xml"], clip.get("media", []), off, off)
             self.changed(slide=True)
             c.select(new)
             return
@@ -1695,6 +1720,9 @@ class DeliverWindow(PictureCommands, ReviewCommands, AnimationCommands, MoreComm
                 self.start_show(self.current or 0, presenter=True)
             else:
                 self.start_show(self.current or 0 if shift else 0)
+            return True
+        if kv == Gdk.KEY_F7 and shift and not ctrl:
+            self.run("thesaurus")
             return True
         if kv == Gdk.KEY_F7 and not ctrl:
             self.run("spelling")

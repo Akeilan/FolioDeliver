@@ -561,6 +561,53 @@ impl PyPresentation {
         self.deck.set_alt_text(i, id, text).map_err(err)
     }
 
+    // --------------------------------------------------------- charts
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (i, xml, xlsx, x, y, w, h, ex=false))]
+    fn insert_chart(&mut self, i: usize, xml: &str, xlsx: Vec<u8>, x: f64, y: f64, w: f64, h: f64, ex: bool) -> PyResult<u32> {
+        self.deck.insert_chart(i, xml, &xlsx, x, y, w, h, ex).map_err(err)
+    }
+
+    fn chart_part(&mut self, i: usize, id: u32) -> Option<String> {
+        self.deck.chart_part(i, id)
+    }
+
+    fn chart_xml(&mut self, part: &str) -> Option<String> {
+        self.deck.chart_xml(part)
+    }
+
+    fn set_chart_xml(&mut self, part: &str, xml: &str) -> PyResult<()> {
+        self.deck.set_chart_xml(part, xml).map_err(err)
+    }
+
+    fn chart_workbook<'py>(&mut self, py: Python<'py>, part: &str) -> Option<Bound<'py, PyBytes>> {
+        self.deck.chart_workbook(part).map(|b| PyBytes::new_bound(py, &b))
+    }
+
+    fn set_chart_workbook(&mut self, part: &str, data: Vec<u8>) -> PyResult<()> {
+        self.deck.set_chart_workbook(part, &data).map_err(err)
+    }
+
+    // --------------------------------------------------------- SmartArt
+    #[allow(clippy::too_many_arguments)]
+    fn insert_diagram(&mut self, i: usize, data: String, layout: String, style: String, colors: String, drawing: String,
+                      x: f64, y: f64, w: f64, h: f64) -> PyResult<u32> {
+        self.deck.insert_diagram(i, &[data, layout, style, colors, drawing], x, y, w, h).map_err(err)
+    }
+
+    fn diagram_parts(&mut self, i: usize, id: u32) -> Option<Vec<String>> {
+        self.deck.diagram_parts(i, id)
+    }
+
+    fn part_xml(&mut self, part: &str) -> Option<String> {
+        self.deck.pkg.bytes(part).map(|b| String::from_utf8_lossy(&b).into_owned())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_diagram(&mut self, i: usize, id: u32, data: String, layout: String, style: String, colors: String, drawing: String) -> PyResult<()> {
+        self.deck.set_diagram(i, id, &[data, layout, style, colors, drawing]).map_err(err)
+    }
+
     // --------------------------------------------------------- Slide Master view
     /// Index base for design parts: slide index DESIGN + k is design part k.
     #[staticmethod]
@@ -651,6 +698,24 @@ impl PyPresentation {
 
     fn replace_picture(&mut self, i: usize, id: u32, data: Vec<u8>, ext: &str) -> PyResult<()> {
         self.deck.replace_picture(i, id, data, ext).map_err(err)
+    }
+
+    /// What copied shapes refer to (pictures, media, links), to paste them in any presentation.
+    fn shape_media<'py>(&mut self, py: Python<'py>, i: usize, xml: &str) -> Vec<(String, String, String, Bound<'py, PyBytes>, String, bool)> {
+        self.deck.shape_media(i, xml).into_iter().map(|(a, b, c, d, e, f)| (a, b, c, PyBytes::new_bound(py, &d), e, f)).collect()
+    }
+
+    #[pyo3(signature = (i, xml, media, dx=0.0, dy=0.0))]
+    fn paste_shapes_media(&mut self, i: usize, xml: &str, media: Vec<(String, String, String, Vec<u8>, String, bool)>, dx: f64, dy: f64) -> PyResult<Vec<u32>> {
+        self.deck.paste_shapes_media(i, xml, &media, dx, dy).map_err(err)
+    }
+
+    fn custom_shows(&mut self) -> Vec<(String, Vec<usize>)> {
+        self.deck.custom_shows()
+    }
+
+    fn set_custom_shows(&mut self, shows: Vec<(String, Vec<usize>)>) -> PyResult<()> {
+        self.deck.set_custom_shows(&shows).map_err(err)
     }
 
     /// (kind, loop, no animation, from, to, use timings, pen colour)

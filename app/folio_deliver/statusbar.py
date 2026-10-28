@@ -33,7 +33,7 @@ class StatusBar(Gtk.Box):
                 b.connect("clicked", lambda *_: cb())
             return b
         self.notes_btn = flat(label="≡ Notes", tip="Notes: show or hide the notes pane", cb=lambda: win.run("toggle-notes"))
-        self.comments_btn = flat(label="Comments", tip="Comments", cb=lambda: win.run("comments-pane"))
+        self.comments_btn = flat(label="Comments", tip="Comments", cb=lambda: win.run("show-comments"))
         self.pack_start(self.notes_btn, False, False, 0)
         self.pack_start(self.comments_btn, False, False, 0)
         self.view_btns = {}
@@ -62,7 +62,17 @@ class StatusBar(Gtk.Box):
         self._quiet = False
 
     def set_slide(self, i, n, hidden=False):
+        mode = getattr(self, "_mode_text", None)
+        if mode:
+            self.slide_label.set_text(mode)
+            return
         self.slide_label.set_text("Slide %d of %d" % (i + 1, n) if n else "No slides")
+
+    def set_mode_text(self, text):
+        """A master view names itself where the slide number was."""
+        self._mode_text = text
+        if text:
+            self.slide_label.set_text(text)
 
     def show_zoom(self, pct):
         if pct is None:

@@ -94,34 +94,95 @@ class SlidePane(Gtk.Box):
                 self._secs = []
         return self._secs
 
-    def cell(self, i):
-        """(x, y, w, h) of slide i's picture (sections put a heading before their first slide and,
-        in the sorter, start a new row)."""
-        sw, sh = self.win.deck.size()
+    def _layout(self):
+        """Pictures and section headings: {slide: (x, y, w, h)}, [(first, name, text y, collapsed, count)].
+        Slides of a collapsed section have no picture."""
+        deck = self.win.deck
+        n = deck.slide_count()
+        sw, sh = deck.size()
         tw = self.thumb_width()
         th = int(tw * sh / sw)
         cols = self.columns()
         secs = self.section_starts()
+        collapsed = getattr(self.win, "collapsed_sections", set())
+        key = (id(deck), deck.version, tw, cols, frozenset(collapsed), n, tuple(secs))
+        if getattr(self, "_lay_key", None) == key:
+            return self._lay
+        starts = dict(secs)
+        bounds = sorted(starts)
+        counts = {f: (bounds[k + 1] if k + 1 < len(bounds) else n) - f for k, f in enumerate(bounds)}
+        cells, heads = {}, []
+        cur_hidden = False
         if self.sorter:
-            y = 16
-            row_start = 0
-            col = 0
-            starts = {f for f, _n in secs}
-            for k in range(i + 1):
+            y, col, row_used = 16, 0, False
+            for k in range(n):
                 if k in starts:
-                    if k != row_start or col:
+                    if row_used:
                         y += th + 46
+                    heads.append((k, starts[k], y + self.HEAD - 9, starts[k] in collapsed, counts[k]))
                     y += self.HEAD
-                    col = 0
-                    row_start = k
-                elif col >= cols:
+                    col, row_used = 0, False
+                    cur_hidden = starts[k] in collapsed
+                if cur_hidden:
+                    continue
+                if col >= cols:
                     y += th + 46
                     col = 0
-                if k < i:
-                    col += 1
-            return 30 + col * (tw + 40), y, tw, th
-        heads = sum(1 for f, _n in secs if f <= i)
-        return 36, 10 + i * (th + 14) + heads * self.HEAD, tw, th
+                cells[k] = (30 + col * (tw + 40), y, tw, th)
+                col += 1
+                row_used = True
+            end = y + (th + 46 if row_used else 0)
+        else:
+            y = 10
+            for k in range(n):
+                if k in starts:
+                    heads.append((k, starts[k], y + self.HEAD - 9, starts[k] in collapsed, counts[k]))
+                    y += self.HEAD
+                    cur_hidden = starts[k] in collapsed
+                if cur_hidden:
+                    continue
+                cells[k] = (36, y, tw, th)
+                y += th + 14
+            end = y
+        # a section after the last slide (empty)
+        for f, name in secs:
+            if f >= n and all(h[0] != f for h in heads):
+                heads.append((f, name, end + self.HEAD - 9, name in collapsed, 0))
+                end += self.HEAD
+        self._lay_key = key
+        self._lay = (cells, heads, end)
+        return self._lay
+
+    def cell(self, i):
+        """(x, y, w, h) of slide i's picture; for a slide in a collapsed section, its heading."""
+        cells, heads, _end = self._layout()
+        if i in cells:
+            return cells[i]
+        tw = self.thumb_width()
+        for f, _name, ty, _c, cnt in reversed(heads):
+            if f <= i:
+                return (36 if not self.sorter else 30, ty - self.HEAD + 9, tw, 0)
+        return (36, 10, tw, 0)
+
+    def shown(self, i):
+        return i in self._layout()[0]
+
+    def heading_at(self, x, y):
+        for f, name, ty, _c, _cnt in self._layout()[1]:
+            if ty - 15 <= y <= ty + 6:
+                return name
+        return None
+
+    def toggle_section(self, name):
+        cs = getattr(self.win, "collapsed_sections", None)
+        if cs is None:
+            cs = self.win.collapsed_sections = set()
+        if name in cs:
+            cs.discard(name)
+        else:
+            cs.add(name)
+        self.win.pane.relayout()
+        self.win.sorter.relayout()
 
     def relayout(self):
         deck = self.win.deck
@@ -131,8 +192,8 @@ class SlidePane(Gtk.Box):
         if n == 0:
             self.area.set_size_request(-1, 60)
             return
-        x, y, w, h = self.cell(n - 1)
-        self.area.set_size_request(-1, int(y + h + 30))
+        _cells, _heads, end = self._layout()
+        self.area.set_size_request(-1, int(end + 30))
         self.queue()
 
     def queue(self):
@@ -141,6 +202,8 @@ class SlidePane(Gtk.Box):
     def index_at(self, x, y):
         deck = self.win.deck
         for i in range(deck.slide_count()):
+            if not self.shown(i):
+                continue
             cx, cy, w, h = self.cell(i)
             if cx - 30 <= x <= cx + w + 6 and cy - 6 <= y <= cy + h + 8:
                 return i
@@ -164,6 +227,11 @@ class SlidePane(Gtk.Box):
         return best
 
     def ensure_visible(self, i):
+        if not self.shown(i) and i < self.win.deck.slide_count():
+            # going to a slide in a collapsed section opens it
+            for f, name, _ty, coll, cnt in self._layout()[1]:
+                if coll and f <= i < f + cnt:
+                    self.toggle_section(name)
         x, y, w, h = self.cell(i)
         adj = self.scroller.get_vadjustment()
         if y < adj.get_value():
@@ -183,6 +251,8 @@ class SlidePane(Gtk.Box):
         clip = cr.clip_extents()
         sections = self.win.sections() if hasattr(self.win, "sections") else {}
         for i in range(n):
+            if not self.shown(i):
+                continue
             x, y, w, h = self.cell(i)
             if y + h + 20 < clip[1] or y - 20 > clip[3]:
                 continue
@@ -219,23 +289,18 @@ class SlidePane(Gtk.Box):
                 cr.move_to(bx, by + 15)
                 cr.line_to(bx + ext.width + 8, by)
                 cr.stroke()
-        # section headings
-        for f, name in self.section_starts():
-            if f > n:
-                continue
-            if f < n:
-                x, y, w, h = self.cell(f)
-            else:
-                x, y, w, h = self.cell(n - 1) if n else (36, 10, tw, 0)
-                y += h + 14
+        # section headings (a click folds them)
+        for f, name, ty, coll, cnt in self._layout()[1]:
             cr.set_source_rgb(0.30, 0.30, 0.30)
             cr.select_font_face("Sans", 0, 1)
             cr.set_font_size(11)
-            cr.move_to(8 if not self.sorter else 12, y - 9)
-            cr.show_text("\u25be " + name)
+            cr.move_to(8 if not self.sorter else 12, ty)
+            cr.show_text(("\u25b8 %s (%d)" % (name, cnt)) if coll else ("\u25be " + name))
             cr.select_font_face("Sans")
         # transition marks (a small star beside the number, as the original's)
         for i in range(n):
+            if not self.shown(i):
+                continue
             x, y, w, h = self.cell(i)
             if y + h + 20 < clip[1] or y - 20 > clip[3]:
                 continue
@@ -273,6 +338,11 @@ class SlidePane(Gtk.Box):
     # ------------------------------------------------------------ mouse
     def on_press(self, area, ev):
         area.grab_focus()
+        if ev.button == 1:
+            name = self.heading_at(ev.x, ev.y)
+            if name is not None:
+                self.toggle_section(name)
+                return True
         i = self.index_at(ev.x, ev.y)
         shift = bool(ev.state & Gdk.ModifierType.SHIFT_MASK)
         ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)

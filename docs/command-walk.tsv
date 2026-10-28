@@ -4,7 +4,7 @@ paste-picture	OK
 cut	OK
 copy	OK
 format-painter	OK
-not-available:Clipboard pane	NOT_YET
+clipboard-pane	OK
 new-slide	OK
 reset-slide	OK
 add-section	OK
@@ -223,16 +223,15 @@ anim-trigger	OK
 anim-painter	OK
 anim-earlier	OK
 anim-later	OK
-not-available:Custom Slide Shows	NOT_YET
 toggle-presenter-view	OK
 setup-show	OK
 hide-slide	OK
-not-available:Rehearse Timings	NOT_YET
+rehearse-timings	OK
 not-available:Recording	NOT_YET
 not-available:Screen Recording	NOT_YET
-not-available:Create a Video	NOT_YET
+create-video	OK
 spelling	OK
-not-available:Thesaurus	NOT_YET
+thesaurus	OK
 accessibility	OK
 delete-comment	OK
 delete-comments-slide	OK
@@ -245,9 +244,9 @@ view-outline	OK
 view-sorter	OK
 view-notes-page	OK
 view-reading	OK
-not-available:Slide Master view	NOT_YET
-not-available:Handout Master view	NOT_YET
-not-available:Notes Master view	NOT_YET
+view-slide-master	OK
+view-handout-master	OK
+view-notes-master	OK
 toggle-ruler	OK
 toggle-grid	OK
 toggle-guides	OK
@@ -255,8 +254,37 @@ toggle-notes	OK
 zoom-dialog	OK
 zoom-fit	OK
 new-window	OK
-not-available:Arrange All	NOT_YET
-not-available:Macros	NOT_YET
+arrange-all	OK
+out-of-scope:Macros	OUT
+master-insert	OK
+master-insert-layout	OK
+master-delete	OK
+master-rename	OK
+master-preserve	OK
+master-layout-dialog	OK
+master-placeholder:obj	OK
+master-placeholder:body	OK
+master-placeholder:pic	OK
+master-placeholder:chart	OK
+master-placeholder:tbl	OK
+master-placeholder:media	OK
+master-placeholder:clipArt	OK
+master-title	OK
+master-footers	OK
+master-hide-bg	OK
+close-master	OK
+nm-toggle:hdr	OK
+nm-toggle:sldImg	OK
+nm-toggle:ftr	OK
+nm-toggle:dt	OK
+nm-toggle:body	OK
+nm-toggle:sldNum	OK
+handout-per-page:1	OK
+handout-per-page:2	OK
+handout-per-page:3	OK
+handout-per-page:4	OK
+handout-per-page:6	OK
+handout-per-page:9	OK
 shortcuts	OK
 about	OK
 format-shape	OK
@@ -276,7 +304,8 @@ table-insert:below	OK
 table-insert:left	OK
 table-insert:right	OK
 change-picture	OK
-not-available:Reset Picture	NOT_YET
+picture-reset	OK
+picture-reset-size	OK
 crop	OK
 crop-aspect:1:1	OK
 crop-aspect:4:3	OK

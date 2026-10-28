@@ -940,6 +940,31 @@ impl Deck {
                 set_rpr(d, e, key, value);
             }
         }
+        // on a master or layout, a placeholder's formatting is its style for the slides
+        if part.contains("slideMasters/") || part.contains("slideLayouts/") {
+            let (sid, cell) = split_tid(id);
+            if cell.is_none() {
+                if let Some(n) = self.find_shape(&part, sid) {
+                    let d = self.pkg.xml_mut(&part).map_err(|e| e.to_string())?;
+                    if let Some(ph) = scene::ph_of(d, n) {
+                        let levels: Vec<usize> = paras.iter().enumerate().filter(|(pi, _)| *pi >= a.0 && *pi <= b.0)
+                            .map(|(_, p)| d.child(*p, "a:pPr").and_then(|pp| emu(d, pp, "lvl")).unwrap_or(0.0) as usize).collect();
+                        for lp in design_style_levels(d, &part, n, &ph.kind, &levels) {
+                            let dr = match d.child(lp, "a:defRPr") {
+                                Some(x) => x,
+                                None => {
+                                    let x = d.new_element("a:defRPr", &[]);
+                                    let at = d.children(lp).iter().position(|&c| d.name(c) == "a:extLst").unwrap_or(d.children(lp).len());
+                                    d.insert(lp, at, x);
+                                    x
+                                }
+                            };
+                            set_rpr(d, dr, key, value);
+                        }
+                    }
+                }
+            }
+        }
         self.commit();
         Ok(())
     }
@@ -984,72 +1009,21 @@ impl Deck {
                 continue;
             }
             let ppr = ensure_ppr(d, *p);
-            match key {
-                "algn" | "lvl" => {
-                    if value.is_empty() || (key == "lvl" && value == "0") {
-                        d.remove_attr(ppr, key);
-                    } else {
-                        d.set_attr(ppr, key, value);
-                    }
-                }
-                "marL" | "indent" => {
-                    let v: f64 = value.parse().unwrap_or(0.0);
-                    d.set_attr(ppr, key, &emu_s(v));
-                }
-                "bullet" => {
-                    for c in d.elements(ppr).collect::<Vec<_>>() {
-                        if matches!(d.name(c), "a:buNone" | "a:buChar" | "a:buAutoNum" | "a:buBlip" | "a:buFont" | "a:buFontTx") {
-                            d.detach(c);
+            apply_ppr(d, ppr, key, value);
+        }
+        if key != "lvl" && (part.contains("slideMasters/") || part.contains("slideLayouts/")) {
+            let (sid, cell) = split_tid(id);
+            if cell.is_none() {
+                if let Some(n) = self.find_shape(&part, sid) {
+                    let d = self.pkg.xml_mut(&part).map_err(|e| e.to_string())?;
+                    if let Some(ph) = scene::ph_of(d, n) {
+                        let levels: Vec<usize> = paras.iter().enumerate().filter(|(pi, _)| *pi >= p0 && *pi <= p1)
+                            .map(|(_, p)| d.child(*p, "a:pPr").and_then(|pp| emu(d, pp, "lvl")).unwrap_or(0.0) as usize).collect();
+                        for lp in design_style_levels(d, &part, n, &ph.kind, &levels) {
+                            apply_ppr(d, lp, key, value);
                         }
                     }
-                    let el = if value == "none" {
-                        Some(d.new_element("a:buNone", &[]))
-                    } else if let Some(ch) = value.strip_prefix("char:") {
-                        let (font, ch) = match ch.split_once('|') { Some((c, f)) => (Some(f.to_string()), c.to_string()), None => (None, ch.to_string()) };
-                        if let Some(f) = font {
-                            let fe = d.new_element("a:buFont", &[("typeface", &f)]);
-                            insert_bullet_child(d, ppr, fe);
-                        }
-                        Some(d.new_element("a:buChar", &[("char", &ch)]))
-                    } else if let Some(t) = value.strip_prefix("auto:") {
-                        let (t, start) = t.split_once('@').map(|(a, b)| (a.to_string(), Some(b.to_string()))).unwrap_or((t.to_string(), None));
-                        let el = d.new_element("a:buAutoNum", &[("type", &t)]);
-                        if let Some(s) = start.filter(|s| s != "1") {
-                            d.set_attr(el, "startAt", &s);
-                        }
-                        Some(el)
-                    } else {
-                        None
-                    };
-                    if let Some(el) = el {
-                        insert_bullet_child(d, ppr, el);
-                    }
                 }
-                "lnSpc" | "spcBef" | "spcAft" => {
-                    let name = format!("a:{key}");
-                    if let Some(c) = d.child(ppr, &name) {
-                        d.detach(c);
-                    }
-                    if !value.is_empty() {
-                        let inner = if key == "lnSpc" {
-                            let v: f64 = value.parse().unwrap_or(1.0);
-                            format!(r#"<a:spcPct val="{}"/>"#, (v * 100000.0).round() as i64)
-                        } else {
-                            let v: f64 = value.parse().unwrap_or(0.0);
-                            format!(r#"<a:spcPts val="{}"/>"#, (v * 100.0).round() as i64)
-                        };
-                        let el = fragment(d, &format!("<{name}>{inner}</{name}>")).unwrap();
-                        // a:lnSpc, a:spcBef, a:spcAft come first, in that order
-                        let order = ["a:lnSpc", "a:spcBef", "a:spcAft"];
-                        let mine = order.iter().position(|o| *o == name).unwrap();
-                        let at = d.children(ppr).iter().position(|&c| {
-                            let nm = d.name(c);
-                            !order[..mine].contains(&nm)
-                        }).unwrap_or(d.children(ppr).len());
-                        d.insert(ppr, at, el);
-                    }
-                }
-                _ => {}
             }
         }
         self.commit();
@@ -1231,6 +1205,120 @@ fn ensure_xfrm(d: &mut XmlDoc, n: NodeId) -> NodeId {
         d.insert(holder, 0, x);
     }
     x
+}
+
+/// The list-style levels (a:lvlNpPr) a master's or layout's placeholder styles its slides with.
+fn design_style_levels(d: &mut XmlDoc, part: &str, n: NodeId, kind: &str, levels: &[usize]) -> Vec<NodeId> {
+    let master = part.contains("slideMasters/");
+    let style = if master && matches!(kind, "title" | "ctrTitle") {
+        path(d, d.root, &["p:txStyles", "p:titleStyle"])
+    } else if master && matches!(kind, "body" | "obj" | "subTitle") {
+        path(d, d.root, &["p:txStyles", "p:bodyStyle"])
+    } else {
+        let tb = d.child(n, "p:txBody");
+        tb.map(|tb| match d.child(tb, "a:lstStyle") {
+            Some(l) => l,
+            None => {
+                let l = d.new_element("a:lstStyle", &[]);
+                let at = d.child(tb, "a:bodyPr").and_then(|x| d.index_in_parent(x)).map(|k| k + 1).unwrap_or(0);
+                d.insert(tb, at, l);
+                l
+            }
+        })
+    };
+    let Some(st) = style else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut lv: Vec<usize> = levels.to_vec();
+    lv.sort();
+    lv.dedup();
+    for l in lv {
+        let name = format!("a:lvl{}pPr", l + 1);
+        let lp = match d.child(st, &name) {
+            Some(x) => x,
+            None => {
+                let x = d.new_element(&name, &[]);
+                let at = d.children(st).iter().position(|&c| {
+                    let nm = d.name(c);
+                    nm == "a:extLst" || (nm.starts_with("a:lvl") && nm > name.as_str())
+                }).unwrap_or(d.children(st).len());
+                d.insert(st, at, x);
+                x
+            }
+        };
+        out.push(lp);
+    }
+    out
+}
+
+/// One paragraph-property change on a:pPr (or a list style level a:lvlNpPr).
+fn apply_ppr(d: &mut XmlDoc, ppr: NodeId, key: &str, value: &str) {
+    match key {
+        "algn" | "lvl" => {
+            if value.is_empty() || (key == "lvl" && value == "0") {
+                d.remove_attr(ppr, key);
+            } else {
+                d.set_attr(ppr, key, value);
+            }
+        }
+        "marL" | "indent" => {
+            let v: f64 = value.parse().unwrap_or(0.0);
+            d.set_attr(ppr, key, &emu_s(v));
+        }
+        "bullet" => {
+            for c in d.elements(ppr).collect::<Vec<_>>() {
+                if matches!(d.name(c), "a:buNone" | "a:buChar" | "a:buAutoNum" | "a:buBlip" | "a:buFont" | "a:buFontTx") {
+                    d.detach(c);
+                }
+            }
+            let el = if value == "none" {
+                Some(d.new_element("a:buNone", &[]))
+            } else if let Some(ch) = value.strip_prefix("char:") {
+                let (font, ch) = match ch.split_once('|') { Some((c, f)) => (Some(f.to_string()), c.to_string()), None => (None, ch.to_string()) };
+                if let Some(f) = font {
+                    let fe = d.new_element("a:buFont", &[("typeface", &f)]);
+                    insert_bullet_child(d, ppr, fe);
+                }
+                Some(d.new_element("a:buChar", &[("char", &ch)]))
+            } else if let Some(t) = value.strip_prefix("auto:") {
+                let (t, start) = t.split_once('@').map(|(a, b)| (a.to_string(), Some(b.to_string()))).unwrap_or((t.to_string(), None));
+                let el = d.new_element("a:buAutoNum", &[("type", &t)]);
+                if let Some(s) = start.filter(|s| s != "1") {
+                    d.set_attr(el, "startAt", &s);
+                }
+                Some(el)
+            } else {
+                None
+            };
+            if let Some(el) = el {
+                insert_bullet_child(d, ppr, el);
+            }
+        }
+        "lnSpc" | "spcBef" | "spcAft" => {
+            let name = format!("a:{key}");
+            if let Some(c) = d.child(ppr, &name) {
+                d.detach(c);
+            }
+            if !value.is_empty() {
+                let inner = if key == "lnSpc" {
+                    let v: f64 = value.parse().unwrap_or(1.0);
+                    format!(r#"<a:spcPct val="{}"/>"#, (v * 100000.0).round() as i64)
+                } else {
+                    let v: f64 = value.parse().unwrap_or(0.0);
+                    format!(r#"<a:spcPts val="{}"/>"#, (v * 100.0).round() as i64)
+                };
+                let el = fragment(d, &format!("<{name}>{inner}</{name}>")).unwrap();
+                // a:lnSpc, a:spcBef, a:spcAft come first, in that order
+                let order = ["a:lnSpc", "a:spcBef", "a:spcAft"];
+                let mine = order.iter().position(|o| *o == name).unwrap();
+                let at = d.children(ppr).iter().position(|&c| {
+                    let nm = d.name(c);
+                    !order[..mine].contains(&nm)
+                }).unwrap_or(d.children(ppr).len());
+                d.insert(ppr, at, el);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn piece_len(d: &XmlDoc, c: NodeId) -> usize {

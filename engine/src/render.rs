@@ -479,6 +479,16 @@ impl Painter {
                         }
                     }
                     geom = "chart".into();
+                } else if uri.ends_with("/chartex") {
+                    let rid = gd.and_then(|g| dom.child(g, "cx:chart")).and_then(|c| dom.attr(c, "r:id")).unwrap_or("").to_string();
+                    if let Some(target) = deck.pkg.rel_target(it.part, &rid).map(|t| Package::resolve(it.part, &t)) {
+                        if let Some(b) = deck.pkg.raw(&target) {
+                            let bytes = Arc::new(b.to_vec());
+                            let theme = folio_core::pictures::theme_array(&ctx.scheme.colors);
+                            folio_core::chart::draw_ex(cr, &bytes, w, h, &theme, &ctx.minor);
+                        }
+                    }
+                    geom = "chart".into();
                 } else if uri.ends_with("/diagram") {
                     self.draw_diagram(deck, ctx, cr, it, w, h, env);
                     geom = "smartart".into();
@@ -540,6 +550,16 @@ impl Painter {
                 self.outline(deck, ctx, cr, it, &mut sh, w, h);
                 cr.restore().ok();
                 // text
+                // a master's or layout's placeholders show their edges while editing
+                if collect && ph.is_some() && opts.edit && !it.part.contains("slides/") {
+                    cr.save().ok();
+                    cr.rectangle(0.0, 0.0, w, h);
+                    cr.set_source_rgb(0.6, 0.6, 0.6);
+                    cr.set_line_width(0.75);
+                    cr.set_dash(&[3.0, 2.0], 0.0);
+                    cr.stroke().ok();
+                    cr.restore().ok();
+                }
                 if let Some(tb) = dom.child(n, "p:txBody") {
                     let lay = self.layout_text(deck, ctx, it.part, dom, n, tb, w, h, env);
                     let empty = lay.paras.iter().all(|p| p.is_empty());
@@ -1067,7 +1087,7 @@ pub fn kids(dom: &XmlDoc, tree: NodeId) -> Vec<NodeId> {
             "mc:AlternateContent" => {
                 let pick = dom.child(c, "mc:Choice").filter(|ch| {
                     let req = dom.attr(*ch, "Requires").unwrap_or("");
-                    req.split_whitespace().all(|r| matches!(r, "p14" | "p15" | "a14" | "v" | "p159"))
+                    req.split_whitespace().all(|r| matches!(r, "p14" | "p15" | "a14" | "v" | "p159" | "cx1" | "cx2" | "cx3" | "cx4"))
                         && !dom.elements(*ch).any(|e| dom.name(e) == "p:sp" && dom.child(e, "p:txBody")
                             .is_some_and(|tb| has_math(dom, tb)))
                 }).or_else(|| dom.child(c, "mc:Fallback"));

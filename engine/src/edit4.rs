@@ -235,3 +235,155 @@ impl Deck {
         Ok(())
     }
 }
+
+/// Relationship ids an XML fragment refers to (r:embed, r:link, r:id, ...).
+fn rids_in(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(k) = rest.find(" r:") {
+        rest = &rest[k + 3..];
+        let Some(eq) = rest.find("=\"") else { break };
+        let name = &rest[..eq];
+        if name.chars().all(|c| c.is_ascii_alphanumeric()) {
+            let v = &rest[eq + 2..];
+            if let Some(end) = v.find('"') {
+                let id = v[..end].to_string();
+                if !id.is_empty() && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+    out
+}
+
+impl Deck {
+    /// What shapes copied from slide i refer to: (rid, relationship type, target or "", bytes, content type, external).
+    pub fn shape_media(&mut self, i: usize, xml: &str) -> Vec<(String, String, String, Vec<u8>, String, bool)> {
+        let Ok(part) = self.slide_part(i) else { return Vec::new() };
+        let rels = self.pkg.rels(&part);
+        let mut out = Vec::new();
+        for rid in rids_in(xml) {
+            let Some(r) = rels.iter().find(|r| r.id == rid) else { continue };
+            if r.external {
+                out.push((rid, r.kind.clone(), r.target.clone(), Vec::new(), String::new(), true));
+                continue;
+            }
+            let t = Package::resolve(&part, &r.target);
+            if r.kind.ends_with("/slide") || r.kind.ends_with("/slideLayout") || r.kind.ends_with("/notesSlide") {
+                continue;
+            }
+            let Some(b) = self.pkg.bytes(&t) else { continue };
+            let ct = content_type(&mut self.pkg, &t).unwrap_or_default();
+            out.push((rid, r.kind.clone(), t, b, ct, false));
+        }
+        out
+    }
+
+    /// Paste shapes with what they refer to (from shape_media), from any presentation.
+    pub fn paste_shapes_media(&mut self, i: usize, xml: &str, media: &[(String, String, String, Vec<u8>, String, bool)], dx: f64, dy: f64) -> Result<Vec<u32>, String> {
+        let part = self.slide_part(i)?;
+        self.begin("Paste", &[part.clone(), Package::rels_name(&part), CT.to_string()]);
+        let mut xml = xml.to_string();
+        // placeholders while ids are swapped, so rId2 -> rId5 and rId5 -> rId7 don't collide
+        let mut swaps = Vec::new();
+        for (k, (rid, kind, target, bytes, ct, external)) in media.iter().enumerate() {
+            let new_rid = if *external {
+                let r = self.pkg.add_rel(&part, kind, target);
+                if let Ok(rd) = self.pkg.xml_mut(&Package::rels_name(&part)) {
+                    let found = rd.elements(rd.root).find(|&x| rd.attr(x, "Id") == Some(r.as_str()));
+                    if let Some(x) = found {
+                        rd.set_attr(x, "TargetMode", "External");
+                    }
+                }
+                r
+            } else {
+                let (dir, file) = target.rsplit_once('/').unwrap_or(("ppt/media", target.as_str()));
+                let (stem, ext) = file.rsplit_once('.').unwrap_or((file, "bin"));
+                let stem = stem.trim_end_matches(|c: char| c.is_ascii_digit());
+                // the same picture already here: reuse it
+                let existing = self.pkg.part_names().into_iter().find(|n| n.starts_with(dir) && self.pkg.raw(n).map(|r| r == bytes.as_slice()).unwrap_or(false));
+                let name = match existing {
+                    Some(n) => n,
+                    None => {
+                        let n = self.free_name(dir, if stem.is_empty() { "image" } else { stem }, ext);
+                        self.touch(&[n.clone()]);
+                        self.pkg.put_raw(&n, bytes.clone());
+                        if !ct.is_empty() && content_type(&mut self.pkg, &n).as_deref() != Some(ct.as_str()) {
+                            self.pkg.set_content_type(&n, ct);
+                        }
+                        n
+                    }
+                };
+                self.pkg.add_rel(&part, kind, &rel_path(&part, &name))
+            };
+            let ph = format!("\u{1}{k}\u{1}");
+            xml = xml.replace(&format!("=\"{rid}\""), &format!("=\"{ph}\""));
+            swaps.push((ph, new_rid));
+        }
+        for (ph, new_rid) in swaps {
+            xml = xml.replace(&ph, &new_rid);
+        }
+        // paste_shapes joins this undo step
+        self.paste_shapes(i, &xml, dx, dy)
+    }
+}
+
+impl Deck {
+    /// Custom slide shows: [(name, [slide indexes])].
+    pub fn custom_shows(&mut self) -> Vec<(String, Vec<usize>)> {
+        let pres = self.pres.clone();
+        let rels = self.pkg.rels(&pres);
+        let slides = self.slides.clone();
+        let Ok(d) = self.pkg.xml(&pres) else { return Vec::new() };
+        let Some(lst) = d.child(d.root, "p:custShowLst") else { return Vec::new() };
+        d.children_named(lst, "p:custShow").map(|cs| {
+            let name = d.attr(cs, "name").unwrap_or("").to_string();
+            let idx = d.child(cs, "p:sldLst").map(|sl| d.children_named(sl, "p:sld").filter_map(|s| {
+                let rid = d.attr(s, "r:id")?;
+                let r = rels.iter().find(|r| r.id == rid)?;
+                let t = Package::resolve(&pres, &r.target);
+                slides.iter().position(|p| *p == t)
+            }).collect()).unwrap_or_default();
+            (name, idx)
+        }).collect()
+    }
+
+    pub fn set_custom_shows(&mut self, shows: &[(String, Vec<usize>)]) -> Result<(), String> {
+        let pres = self.pres.clone();
+        self.begin("Custom Shows", &[pres.clone()]);
+        let rels = self.pkg.rels(&pres);
+        let slides = self.slides.clone();
+        let rid_of = |k: usize| -> Option<String> {
+            let p = slides.get(k)?;
+            rels.iter().find(|r| Package::resolve(&pres, &r.target) == *p).map(|r| r.id.clone())
+        };
+        let mut xml = String::from("<p:custShowLst>");
+        for (n, (name, idx)) in shows.iter().enumerate() {
+            let mut e = String::new();
+            folio_core::xml::escape_text(name, &mut e);
+            xml.push_str(&format!(r#"<p:custShow name="{}" id="{n}"><p:sldLst>"#, e.replace('"', "&quot;")));
+            for &k in idx {
+                if let Some(r) = rid_of(k) {
+                    xml.push_str(&format!(r#"<p:sld r:id="{r}"/>"#));
+                }
+            }
+            xml.push_str("</p:sldLst></p:custShow>");
+        }
+        xml.push_str("</p:custShowLst>");
+        let d = self.pkg.xml_mut(&pres).map_err(|e| e.to_string())?;
+        let root = d.root;
+        if let Some(old) = d.child(root, "p:custShowLst") {
+            d.detach(old);
+        }
+        if !shows.is_empty() {
+            let el = fragment(d, &xml).ok_or("bad shows")?;
+            // after notesSz / smartTags / embeddedFontLst, before photoAlbum / custDataLst / kinsoku / defaultTextStyle
+            let at = d.children(root).iter().position(|&c| matches!(d.name(c), "p:photoAlbum" | "p:custDataLst" | "p:kinsoku" | "p:defaultTextStyle" | "p:modifyVerifier" | "p:extLst"))
+                .unwrap_or(d.children(root).len());
+            d.insert(root, at, el);
+        }
+        self.commit();
+        Ok(())
+    }
+}
