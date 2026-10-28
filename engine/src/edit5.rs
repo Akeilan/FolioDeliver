@@ -148,6 +148,9 @@ impl Deck {
         let ix = idx.map(|i| format!(r#" idx="{i}""#)).unwrap_or_default();
         let text = match kind {
             "title" => r#"<a:p><a:r><a:rPr lang="en-US"/><a:t>Click to edit Master title style</a:t></a:r></a:p>"#,
+            "hdr" => r#"<a:p><a:r><a:rPr lang="en-US"/><a:t>Header</a:t></a:r></a:p>"#,
+            "dt" => r#"<a:p><a:fld id="{B7B1A5D1-1C0E-4F35-9E8E-2A6C3C1F0D11}" type="datetimeFigureOut"><a:rPr lang="en-US"/><a:t>‹date›</a:t></a:fld><a:endParaRPr lang="en-US"/></a:p>"#,
+            "sldNum" => r#"<a:p><a:fld id="{3C3E7F2A-5B1D-4C6E-8F0A-9D2B4E6A8C13}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld><a:endParaRPr lang="en-US"/></a:p>"#,
             _ => r#"<a:p><a:endParaRPr lang="en-US"/></a:p>"#,
         };
         format!(r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="{label} {}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph{ty}{sz}{ix}/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>{text}</p:txBody></p:sp>"#, id - 1)
@@ -514,7 +517,13 @@ impl Deck {
         self.pkg.set_content_type(&theme, CT_THEME);
         let (w, h) = (6858000i64, 9144000i64);
         let ph = |id: u32, ty: &str, idx: u32, x: i64, y: i64, label: &str, algn: &str| format!(
-            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="{label}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="{ty}" sz="quarter" idx="{idx}"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="2971800" cy="458788"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr vert="horz" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0"/><a:lstStyle><a:lvl1pPr algn="{algn}"><a:defRPr sz="1200"/></a:lvl1pPr></a:lstStyle><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>"#);
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="{label}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="{ty}" sz="quarter" idx="{idx}"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="2971800" cy="458788"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr vert="horz" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0"/><a:lstStyle><a:lvl1pPr algn="{algn}"><a:defRPr sz="1200"/></a:lvl1pPr></a:lstStyle>{}</p:txBody></p:sp>"#,
+            match ty {
+                "hdr" => r#"<a:p><a:r><a:rPr lang="en-US"/><a:t>Header</a:t></a:r></a:p>"#,
+                "dt" => r#"<a:p><a:fld id="{B7B1A5D1-1C0E-4F35-9E8E-2A6C3C1F0D11}" type="datetimeFigureOut"><a:rPr lang="en-US"/><a:t>‹date›</a:t></a:fld><a:endParaRPr lang="en-US"/></a:p>"#,
+                "sldNum" => r#"<a:p><a:fld id="{3C3E7F2A-5B1D-4C6E-8F0A-9D2B4E6A8C13}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld><a:endParaRPr lang="en-US"/></a:p>"#,
+                _ => r#"<a:p><a:endParaRPr lang="en-US"/></a:p>"#,
+            });
         let shapes = [ph(2, "hdr", 0, 0, 0, "Header Placeholder 1", "l"), ph(3, "dt", 1, w - 2971800, 0, "Date Placeholder 2", "r"),
                       ph(4, "ftr", 2, 0, h - 458788, "Footer Placeholder 3", "l"), ph(5, "sldNum", 3, w - 2971800, h - 458788, "Slide Number Placeholder 4", "r")].concat();
         let xml = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

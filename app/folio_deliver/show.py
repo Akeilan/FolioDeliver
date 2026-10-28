@@ -14,12 +14,16 @@ PEN_COLORS = [("Red", (0.9, 0.1, 0.1)), ("Blue", (0.1, 0.3, 0.9)), ("Green", (0.
 
 class ShowState:
     """What the audience sees, shared by the show window and Presenter View."""
-    def __init__(self, win, start, hidden_too=False):
+    def __init__(self, win, start, hidden_too=False, order=None, rehearse=False):
         self.win = win
         self.deck = win.deck
         n = self.deck.slide_count()
         # hidden slides are skipped (unless the show starts on one)
         self.order = [i for i in range(n) if hidden_too or not self.deck.is_hidden(i) or i == start]
+        self.custom = order is not None
+        # Rehearse Timings: seconds spent on each slide
+        self.rehearse = {} if rehearse else None
+        self._slide_t0 = time.time()
         # Set Up Show
         try:
             kind, self.looped, self.no_anim, rfrom, rto, self.use_timings, pen = self.deck.show_settings()
@@ -29,7 +33,10 @@ class ShowState:
         self.browsed = kind == "browsed" and not hidden_too
         if hidden_too:
             self.looped, self.no_anim, self.use_timings = False, False, True
-        if (rfrom or rto) and not hidden_too:
+        if order is not None:
+            self.order = [i for i in order if 0 <= i < n]
+            start = self.order[0] if self.order else start
+        elif (rfrom or rto) and not hidden_too:
             lo, hi = max(1, rfrom) - 1, (rto if rto > 0 else n) - 1
             ranged = [i for i in self.order if lo <= i <= hi]
             if ranged:
@@ -121,6 +128,7 @@ class ShowState:
             self.paused_at = time.time()
         else:
             self.paused_total += time.time() - self.paused_at
+            self._slide_t0 += time.time() - self.paused_at
             self.paused_at = None
         self.changed()
 
@@ -154,6 +162,11 @@ class ShowState:
         if pos != self.pos:
             self.last_viewed = self.pos
         old = self.index
+        if self.rehearse is not None and old is not None and pos != self.pos:
+            now = time.time()
+            if self.paused_at is None:
+                self.rehearse[old] = self.rehearse.get(old, 0.0) + now - self._slide_t0
+            self._slide_t0 = now
         self.pos = pos
         if self.screen in ("black", "white"):
             self.screen = None
@@ -223,6 +236,8 @@ class ShowState:
     def end(self):
         if self.ended:
             return
+        if self.rehearse is not None and self.index is not None and self.screen != "end":
+            self.rehearse[self.index] = self.rehearse.get(self.index, 0.0) + time.time() - self._slide_t0
         self.ended = True
         if self._adv:
             GLib.source_remove(self._adv)
@@ -837,10 +852,12 @@ class PresenterWindow(Gtk.Window):
         self.next_area.queue_draw()
 
 
-def start(win, index, presenter=False):
+def start(win, index, presenter=False, order=None, rehearse=False):
     """Start the show from slide `index`; with two screens the audience gets one and
-    Presenter View the other."""
-    st = ShowState(win, index)
+    Presenter View the other. `order`: a custom show's slides."""
+    st = ShowState(win, index, order=order, rehearse=rehearse)
+    if rehearse:
+        st.use_timings = False
     if not st.order:
         return None
     _k, _o, _d, click, after = st.deck.transition(st.index)
@@ -852,7 +869,7 @@ def start(win, index, presenter=False):
     if primary is None and disp is not None and n:
         primary = disp.get_monitor(0)
     use_presenter = win.app.settings.get("presenter_view", True)
-    if n >= 2 and use_presenter and not st.browsed:
+    if n >= 2 and use_presenter and not st.browsed and not rehearse:
         other = None
         for k in range(n):
             m = disp.get_monitor(k)

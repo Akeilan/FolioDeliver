@@ -97,7 +97,8 @@ class SlideCanvas(Gtk.Box):
         return self.win.current
 
     def slide_size(self):
-        return self.deck.size()
+        part = self.win.design_part() if getattr(self.win, "master_mode", None) else None
+        return self.deck.page_size(part) if part else self.deck.size()
 
     def compute_scale(self):
         sw, sh = self.slide_size()
@@ -142,7 +143,7 @@ class SlideCanvas(Gtk.Box):
 
     def _surface(self):
         i = self.index
-        if i is None or i >= self.deck.slide_count():
+        if i is None or (i >= self.deck.slide_count() and getattr(self.win, "master_mode", None) is None):
             return None, []
         hide = self.crop["id"] if self.crop is not None else None
         key = (i, self.deck.version, round(self.scale, 4), hide)
@@ -241,6 +242,7 @@ class SlideCanvas(Gtk.Box):
         if cur is not None and cur.name == "Animations":
             self._draw_anim_tags(cr)
         self._draw_comment_markers(cr)
+        self.win.draw_handout_frames(cr)
         if self.crop is not None:
             self._draw_crop(cr)
             return
@@ -1037,6 +1039,9 @@ class SlideCanvas(Gtk.Box):
                 y = y0 if y1 >= y0 else y0 - h
         self.insert_mode = None
         self.win.insert_mode_done()
+        if what[0] == "placeholder":
+            self.win.add_placeholder_at(what[1], x, y, max(w, 72.0), max(h, 36.0) if not clicked else 144.0)
+            return
         if what[0] == "textbox":
             sid = self.deck.add_textbox(self.index, x, y, max(w, 20.0), 28.0 if clicked else max(h, 20.0), "")
             self.win.changed(slide=True)

@@ -368,9 +368,14 @@ class MoreCommands:
         self.changed(structure=True)
 
     def act_collapse_sections(self):
-        self.not_available("not-available:Collapsing sections")
+        self.collapsed_sections = {n for n, _f, _c in self.deck.sections()}
+        self.pane.relayout()
+        self.sorter.relayout()
 
-    act_expand_sections = act_collapse_sections
+    def act_expand_sections(self):
+        self.collapsed_sections = set()
+        self.pane.relayout()
+        self.sorter.relayout()
 
     # ------------------------------------------------------------ transitions
     def act_transition(self, kind):

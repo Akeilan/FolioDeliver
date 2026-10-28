@@ -134,7 +134,7 @@ missing = sorted(set(c.split(":", 1)[1] if c.startswith("not-available:") else c
 out = os.environ.get("WALK_OUT", "/tmp/deliver-command-walk.tsv")
 with open(out, "w") as f:
     for c in cmds:
-        status = "NOT_YET" if c.startswith("not-available:") else "OK"
+        status = "NOT_YET" if c.startswith("not-available:") else "OUT" if c.startswith("out-of-scope:") else "OK"
         f.write("%s\t%s\n" % (c, status))
 print("commands:", len(cmds), "runs:", ran, "undone:", n)
 print("not available yet:", len(missing))

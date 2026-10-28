@@ -450,6 +450,11 @@ def color_menu(win, cmd, none_label, more=True):
     return make
 
 
+def custom_shows_menu(win):
+    from .show_ui import custom_shows_menu as m
+    return m(win)
+
+
 def build_ribbon(win):
     B = Builder(win)
     r = win.ribbon
@@ -462,7 +467,7 @@ def build_ribbon(win):
                                                        ("Keep Text Only", "paste-text"), ("Picture", "paste-picture")]),
         [B.small("Cut", "r-cut-sm", "cut", "X"), B.small("Copy", "r-copy-sm", "copy", "C"),
          B.small("Format Painter", "r-format-painter-sm", "format-painter", "FP")],
-    ], launcher=na("Clipboard pane"), launcher_keytip="FO")
+    ], launcher="clipboard-pane", launcher_keytip="FO")
     new_slide = SplitButton(r, "New Slide", "insertslide", "new-slide", lambda: layouts_menu(win), size="large",
                             keytip="I", tooltip="New Slide (Ctrl+M)")
     layout_btn = MenuButton(r, "Layout", "assignlayout", lambda: layouts_menu(win, "set-layout"), size="small", keytip="L",
@@ -648,12 +653,12 @@ def build_ribbon(win):
     B.group(t, "Start Slide Show", [B.big("From Beginning", "presentation", "show-start", "B", tip="From Beginning (F5)"),
                                     B.big("From Current Slide", "presentationcurrentslide", "show-current", "C",
                                           tip="From Current Slide (Shift+F5)"),
-                                    B.big("Custom Slide Show", "customshowdialog", na("Custom Slide Shows"), "W")])
+                                    B.big("Custom Slide Show", "customshowdialog", None, "W", menu=lambda: custom_shows_menu(win))])
     win.presenter_check = CheckControl(r, "Use Presenter View", "toggle-presenter-view",
                                        active=win.app.settings.get("presenter_view", True), keytip="UV")
     B.group(t, "Set Up", [B.big("Set Up Slide Show", "presentationdialog", "setup-show", "S"),
                           B.big("Hide Slide", "hideslide", "hide-slide", "H", tip="Hide Slide", ),
-                          B.big("Rehearse Timings", "rehearsetimings", na("Rehearse Timings"), "T")])
+                          B.big("Rehearse Timings", "rehearsetimings", "rehearse-timings", "T")])
     B.group(t, "Monitors", [[win.presenter_check]])
     r.add_tab(t)
 
@@ -663,13 +668,13 @@ def build_ribbon(win):
                                 na("Recording"), "C"),
                           B.big("From Beginning", "insertvideo", na("Recording"), "B")])
     B.group(t, "Auto-Play Media", [B.big("Screen Recording", "r-screenshot", na("Screen Recording"), "R")])
-    B.group(t, "Save", [B.big("Export to Video", "insertvideo", na("Create a Video"), "E")])
+    B.group(t, "Save", [B.big("Export to Video", "insertvideo", "create-video", "E")])
     r.add_tab(t)
 
     # ================================================================ Review
     t = r.building(Tab("Review", "R"))
     B.group(t, "Proofing", [B.big("Spelling", "r-spelling", "spelling", "S", tip="Spelling (F7)"),
-                            [B.small("Thesaurus", "r-thesaurus-sm", na("Thesaurus"), "E")]])
+                            [B.small("Thesaurus", "r-thesaurus-sm", "thesaurus", "E", tip="Thesaurus (Shift+F7)")]])
     B.group(t, "Accessibility", [B.big("Check Accessibility", "r-check-accessibility", "accessibility", "A")])
     B.group(t, "Comments", [B.big("New Comment", "r-new-comment", "new-comment", "C"),
                             B.big("Delete", "deleteannotation", None, "D",
@@ -687,9 +692,9 @@ def build_ribbon(win):
                                       B.big("Slide Sorter", "slidechangewindow", "view-sorter", "I"),
                                       B.big("Notes Page", "notesmode", "view-notes-page", "T"),
                                       B.big("Reading View", "read-mode", "view-reading", "D")])
-    B.group(t, "Master Views", [B.big("Slide Master", "slidemasterpage", na("Slide Master view"), "M"),
-                                B.big("Handout Master", "handoutmode", na("Handout Master view"), "H"),
-                                B.big("Notes Master", "notesmasterpage", na("Notes Master view"), "N")])
+    B.group(t, "Master Views", [B.big("Slide Master", "slidemasterpage", "view-slide-master", "M"),
+                                B.big("Handout Master", "handoutmode", "view-handout-master", "H"),
+                                B.big("Notes Master", "notesmasterpage", "view-notes-master", "N")])
     win.ruler_check = CheckControl(r, "Ruler", "toggle-ruler", keytip="R")
     win.grid_check = CheckControl(r, "Gridlines", "toggle-grid", keytip="GD")
     win.guides_check = CheckControl(r, "Guides", "toggle-guides", keytip="GU")
@@ -698,8 +703,10 @@ def build_ribbon(win):
     B.group(t, "Window", [B.big("New Window", "r-new-window", "new-window", "W"),
                           [B.small("Arrange All", "r-arrange-all", "arrange-all", "A"),
                            B.small("Switch Windows", "r-switch-windows", "switch-windows", "S")]])
-    B.group(t, "Macros", [B.big("Macros", "r-macros", na("Macros"), "PM")])
+    B.group(t, "Macros", [B.big("Macros", "r-macros", "out-of-scope:Macros", "PM")])
     r.add_tab(t)
+
+    build_master_tabs(win, r, B)
 
     # ================================================================ Help
     t = r.building(Tab("Help", "Y"))
@@ -863,3 +870,47 @@ class AnimStart(Gtk.ComboBoxText):
             self.append(k, t)
         self.set_active_id("click")
         self.connect("changed", lambda c: None if self.quiet else win.run("anim-start:" + c.get_active_id()))
+
+
+def build_master_tabs(win, r, B):
+    """Slide Master, Notes Master and Handout Master: shown while that view is open."""
+    from .more_ui import COLOR_SETS, FONT_SETS, THEMES
+    t = r.building(Tab("Slide Master", "M", contextual=True))
+    B.group(t, "Edit Master", [B.big("Insert Slide Master", "insertmasterpage", "master-insert", "A"),
+                               B.big("Insert Layout", "insertslide", "master-insert-layout", "I"),
+                               [B.small("Delete", "deletemasterpage", "master-delete", "D"),
+                                B.small("Rename", "renamemasterpage", "master-rename", "R"),
+                                B.small("Preserve", "masterpage", "master-preserve", "P")]])
+    B.group(t, "Master Layout", [B.big("Master Layout", "masterlayouts", "master-layout-dialog", "M"),
+                                 B.big("Insert Placeholder", "insertslide", None, "C",
+                                       menu=[("Content", "master-placeholder:obj"), ("Text", "master-placeholder:body"),
+                                             ("Picture", "master-placeholder:pic"), ("Chart", "master-placeholder:chart"),
+                                             ("Table", "master-placeholder:tbl"), ("Media", "master-placeholder:media"),
+                                             ("Online Image", "master-placeholder:clipArt")]),
+                                 [CheckControl(r, "Title", "master-title", active=True, state="master-title", keytip="T"),
+                                  CheckControl(r, "Footers", "master-footers", active=True, state="master-footers", keytip="F")]])
+    B.group(t, "Edit Theme", [B.big("Themes", "r-themes", None, "H", menu=[(n, "theme:" + n) for n, _c, _f in THEMES]),
+                              [B.small("Colors", "r-colors-sm", None, "TC", menu=[(n, "theme-colors:" + n) for n, _c in COLOR_SETS]),
+                               B.small("Fonts", "r-fonts-sm", None, "TF", menu=[("%s (%s / %s)" % (n, a, b), "theme-fonts:" + n) for n, a, b in FONT_SETS])]])
+    B.group(t, "Background", [B.big("Background Styles", "backgroundcolor", "format-background", "B"),
+                              [CheckControl(r, "Hide Background Graphics", "master-hide-bg", state="master-hide-bg", keytip="G")]])
+    B.group(t, "Size", [B.big("Slide Size", "slidesetup", None, "S",
+                              menu=[("Standard (4:3)", "slide-size:4:3"), ("Widescreen (16:9)", "slide-size:16:9"),
+                                    None, ("Custom Slide Size...", "slide-size:custom")])])
+    B.group(t, "Close", [B.big("Close Master View", "closemasterview", "close-master", "C")])
+    r.add_tab(t)
+
+    for name, key, items in (("Notes Master", "N", [("hdr", "Header"), ("sldImg", "Slide Image"), ("ftr", "Footer"),
+                                                     ("dt", "Date"), ("body", "Body"), ("sldNum", "Page Number")]),
+                             ("Handout Master", "H", [("hdr", "Header"), ("dt", "Date"), ("ftr", "Footer"), ("sldNum", "Page Number")])):
+        t = r.building(Tab(name, key, contextual=True))
+        if name == "Handout Master":
+            B.group(t, "Page Setup", [B.big("Slides Per Page", "showmultiplepages", None, "P",
+                                            menu=[("1 Slide", "handout-per-page:1"), ("2 Slides", "handout-per-page:2"),
+                                                  ("3 Slides", "handout-per-page:3"), ("4 Slides", "handout-per-page:4"),
+                                                  ("6 Slides", "handout-per-page:6"), ("9 Slides", "handout-per-page:9")])])
+        checks = [CheckControl(r, label, "nm-toggle:" + k, active=True, state="nm-" + k) for k, label in items]
+        B.group(t, "Placeholders", [checks[:3], checks[3:]])
+        B.group(t, "Background", [B.big("Background Styles", "backgroundcolor", "format-background", "B")])
+        B.group(t, "Close", [B.big("Close Master View", "closemasterview", "close-master", "C")])
+        r.add_tab(t)
