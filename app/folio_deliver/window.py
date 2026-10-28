@@ -647,6 +647,38 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
             return True
         return self.save_to(p)
 
+    def act_send_attachment(self, pdf=""):
+        """File > Share > Email: a new message in the mail app with this presentation (or a PDF of it) attached."""
+        import shutil
+        import subprocess
+        import tempfile
+        name = os.path.splitext(os.path.basename(self.path or (self.untitled or "Presentation") + ".pptx"))[0]
+        d = tempfile.mkdtemp(prefix="folio-share-")
+        path = os.path.join(d, name + (".pdf" if pdf else ".pptx"))
+        try:
+            if pdf:
+                self.deck.export_pdf(path)
+            else:
+                self.canvas.leave_text()
+                was = self.deck.modified
+                self.deck.save(path)
+                self.deck.modified = was
+        except Exception as e:
+            self.dialogs.message("%s couldn't make the attachment.\n\n%s" % (APP_NAME, e))
+            return None
+        post = shutil.which("folio-post")
+        if post:
+            subprocess.Popen([post, "--attach", path])
+        elif shutil.which("xdg-email"):
+            subprocess.Popen(["xdg-email", "--subject", name, "--attach", path])
+        else:
+            self.dialogs.info("Sending needs a mail app: install Folio Post.")
+            return None
+        return path
+
+    def act_send_pdf(self):
+        return self.act_send_attachment("pdf")
+
     def act_export_pdf(self):
         return self.act_save_as("pdf")
 
