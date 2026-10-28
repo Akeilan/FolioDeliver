@@ -201,6 +201,23 @@ try:
     pt = win.canvas.sel[0] if win.canvas.sel else None
     check(pt is not None and d.table_size(1, pt) == (2, 3), "tab-separated cells paste as a 2 x 3 table")
     check(pt is not None and d.paragraphs(1, Presentation.cell_id(pt, 4)) == ["3"], "cell text pasted")
+    # File > Share > Email (Post, or xdg-email) gets the file
+    import subprocess as SP
+    calls = []
+    SP.Popen = lambda args, *a, **k: calls.append(args)
+    import shutil as SH
+    real_which = SH.which
+    SH.which = lambda n: "/usr/bin/folio-post" if n == "folio-post" else real_which(n)
+    p1 = win.run("send-attachment")
+    p2 = win.run("send-pdf")
+    SH.which = real_which
+    check(p1 and p1.endswith(".pptx") and os.path.getsize(p1) > 1000 and calls[0][:2] == ["/usr/bin/folio-post", "--attach"],
+          "Share > Send as Attachment")
+    check(p2 and p2.endswith(".pdf") and open(p2, "rb").read(4) == b"%PDF", "Share > Send as PDF")
+    win.show_backstage("share")
+    pump(0.2)
+    check(win.backstage.current == "share", "the Share page")
+    win.backstage.close()
     from folio_deliver.window import table_from_text
     check(table_from_text("just text") is None and table_from_text("a\tb") == [["a", "b"]], "plain text stays text")
 except Exception:
