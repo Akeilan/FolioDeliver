@@ -85,3 +85,6 @@ menu menuitem:hover { background: #5a3a1a; }
 .folio-ribbon .folio-combo button, .folio-ribbon .folio-combo entry, .folio-ribbon combobox box button,
 .folio-ribbon .folio-combo box button { color: #f0f0f0; background: #333333; border-color: #555555; }
 .folio-ribbon .folio-combo button:hover { background: #3d3d3d; }
+.folio-outline, .folio-outline text { background: #262626; color: #f0f0f0; caret-color: #f0f0f0; }
+.folio-outline border { background: #1f1f1f; }
+.folio-comment-entry, .folio-comment-entry text { background: #2b2b2b; color: #f0f0f0; }

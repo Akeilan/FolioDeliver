@@ -10,7 +10,7 @@ use folio_core::xml::{NodeId, XmlDoc};
 const NS_DECL: &str = r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main""#;
 const CT: &str = "[Content_Types].xml";
 
-fn rel_path(from: &str, to: &str) -> String {
+pub(crate) fn rel_path(from: &str, to: &str) -> String {
     let fd: Vec<&str> = from.split('/').collect();
     let td: Vec<&str> = to.split('/').collect();
     let fdir = &fd[..fd.len() - 1];
@@ -63,10 +63,13 @@ fn split_at_char(s: &str, k: usize) -> (String, String) {
 
 impl Deck {
     pub fn slide_part(&self, i: usize) -> Result<String, String> {
+        if i >= crate::model::DESIGN {
+            return self.design.get(i - crate::model::DESIGN).cloned().ok_or_else(|| "no such master or layout".to_string());
+        }
         self.slides.get(i).cloned().ok_or_else(|| "no such slide".to_string())
     }
 
-    fn structure_parts(&self, extra: &[String]) -> Vec<String> {
+    pub(crate) fn structure_parts(&self, extra: &[String]) -> Vec<String> {
         let mut v = vec![self.pres.clone(), Package::rels_name(&self.pres), CT.to_string()];
         for e in extra {
             v.push(e.clone());
@@ -75,7 +78,7 @@ impl Deck {
         v
     }
 
-    fn write_slide_list(&mut self) -> Result<(), String> {
+    pub(crate) fn write_slide_list(&mut self) -> Result<(), String> {
         let pres = self.pres.clone();
         let rels = self.pkg.rels(&pres);
         let slides = self.slides.clone();
@@ -1230,7 +1233,7 @@ fn ensure_xfrm(d: &mut XmlDoc, n: NodeId) -> NodeId {
     x
 }
 
-fn piece_len(d: &XmlDoc, c: NodeId) -> usize {
+pub(crate) fn piece_len(d: &XmlDoc, c: NodeId) -> usize {
     match d.name(c) {
         "a:r" | "a:fld" => d.child(c, "a:t").map(|t| char_len(&d.text(t))).unwrap_or(0),
         "a:br" => 1,
@@ -1238,11 +1241,11 @@ fn piece_len(d: &XmlDoc, c: NodeId) -> usize {
     }
 }
 
-fn para_len(d: &XmlDoc, p: NodeId) -> usize {
+pub(crate) fn para_len(d: &XmlDoc, p: NodeId) -> usize {
     d.elements(p).map(|c| piece_len(d, c)).sum()
 }
 
-fn ensure_rpr(d: &mut XmlDoc, r: NodeId) -> NodeId {
+pub(crate) fn ensure_rpr(d: &mut XmlDoc, r: NodeId) -> NodeId {
     if let Some(x) = d.child(r, "a:rPr") {
         return x;
     }
@@ -1381,7 +1384,7 @@ fn set_rpr(d: &mut XmlDoc, rpr: NodeId, key: &str, value: &str) {
 }
 
 /// Split the run that straddles char offset `off` of paragraph `p`.
-fn split_runs_at(d: &mut XmlDoc, p: NodeId, off: usize) {
+pub(crate) fn split_runs_at(d: &mut XmlDoc, p: NodeId, off: usize) {
     let mut at = 0;
     for c in d.elements(p).collect::<Vec<_>>() {
         let l = piece_len(d, c);
@@ -1631,7 +1634,7 @@ impl Deck {
     }
 
     /// A notes master (with its own copy of the first theme) when the file has none.
-    fn ensure_notes_master(&mut self) -> Result<String, String> {
+    pub(crate) fn ensure_notes_master(&mut self) -> Result<String, String> {
         if let Some(m) = self.notes_master() {
             return Ok(m);
         }

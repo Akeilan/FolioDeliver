@@ -564,7 +564,7 @@ def build_ribbon(win):
                                  B.big("SmartArt", "r-smartart", na("SmartArt"), "M"),
                                  B.big("Chart", "r-chart-column-sm", na("Insert Chart"), "C")])
     B.group(t, "Links", [B.big("Link", "r-link", "insert-link", "I", tip="Link (Ctrl+K)")])
-    B.group(t, "Comments", [B.big("Comment", "r-new-comment", na("Comments"), "L")])
+    B.group(t, "Comments", [B.big("Comment", "r-new-comment", "new-comment", "L")])
     B.group(t, "Text", [B.big("Text Box", "r-text-box", "draw-textbox", "X"),
                         [B.small("Header & Footer", "r-header-footer", "header-footer", "H"),
                          B.small("WordArt", "r-wordart-sm", "wordart", "W"),
@@ -671,7 +671,13 @@ def build_ribbon(win):
     B.group(t, "Proofing", [B.big("Spelling", "r-spelling", "spelling", "S", tip="Spelling (F7)"),
                             [B.small("Thesaurus", "r-thesaurus-sm", na("Thesaurus"), "E")]])
     B.group(t, "Accessibility", [B.big("Check Accessibility", "r-check-accessibility", "accessibility", "A")])
-    B.group(t, "Comments", [B.big("New Comment", "r-new-comment", na("Comments"), "C")])
+    B.group(t, "Comments", [B.big("New Comment", "r-new-comment", "new-comment", "C"),
+                            B.big("Delete", "deleteannotation", None, "D",
+                                  menu=[("Delete", "delete-comment"), ("Delete All Comments on This Slide", "delete-comments-slide"),
+                                        ("Delete All Comments in This Presentation", "delete-comments-all")]),
+                            [B.small("Previous", "previousannotation", "prev-comment", "V"),
+                             B.small("Next", "nextannotation", "next-comment", "N")],
+                            B.big("Show Comments", "showannotations", "show-comments", "H")])
     r.add_tab(t)
 
     # ================================================================ View
@@ -690,7 +696,7 @@ def build_ribbon(win):
     B.group(t, "Show", [[win.ruler_check, win.grid_check, win.guides_check], B.big("Notes", "r-notes", "toggle-notes", "NO")])
     B.group(t, "Zoom", [B.big("Zoom", "r-zoom", "zoom-dialog", "Q"), B.big("Fit to Window", "zoomoptimal", "zoom-fit", "F")])
     B.group(t, "Window", [B.big("New Window", "r-new-window", "new-window", "W"),
-                          [B.small("Arrange All", "r-arrange-all", na("Arrange All"), "A"),
+                          [B.small("Arrange All", "r-arrange-all", "arrange-all", "A"),
                            B.small("Switch Windows", "r-switch-windows", "switch-windows", "S")]])
     B.group(t, "Macros", [B.big("Macros", "r-macros", na("Macros"), "PM")])
     r.add_tab(t)
@@ -756,7 +762,8 @@ def build_ribbon(win):
     # ================================================================ Picture Format (contextual)
     t = r.building(Tab("Picture Format", "JP", contextual=True))
     B.group(t, "Adjust", [B.big("Change Picture", "r-pictures", "change-picture", "CP"),
-                          B.big("Reset Picture", "resetattributes", na("Reset Picture"), "Q")])
+                          B.big("Reset Picture", "resetattributes", "picture-reset", "Q",
+                                menu=[("Reset Picture", "picture-reset"), ("Reset Picture & Size", "picture-reset-size")])])
     B.group(t, "Picture Styles", [[SplitButton(r, "Picture Border", "r-shape-outline-sm", "shape-outline-last",
                                                color_menu(win, "shape-outline", "No Outline"), size="small", keytip="PB",
                                                tooltip="Picture Border")]])
@@ -766,7 +773,10 @@ def build_ribbon(win):
                            [B.small("Align", "alignleft", None, "AA", menu=align_menu()),
                             B.small("Group", "r-group-sm", None, "G", menu=[("Group", "group"), ("Ungroup", "ungroup")]),
                             B.small("Rotate", "r-rotate-sm", None, "AY", menu=rotate_menu())]])
-    B.group(t, "Size", [B.big("Crop", "r-scale-sm", na("Crop"), "C"),
+    B.group(t, "Size", [B.big("Crop", "crop", "crop", "C",
+                                    menu=[("Crop", "crop"), ("#", "Aspect Ratio"), ("Square 1:1", "crop-aspect:1:1"),
+                                     ("Landscape 4:3", "crop-aspect:4:3"), ("Landscape 16:9", "crop-aspect:16:9"),
+                                     ("Portrait 3:4", "crop-aspect:3:4"), None, ("Reset Crop", "crop-reset")]),
                         [_labelled("Height:", SizeSpin(win, "h")), _labelled("Width:", SizeSpin(win, "w"))]])
     r.add_tab(t)
 

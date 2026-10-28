@@ -124,9 +124,20 @@ pub fn read_rpr(dom: &XmlDoc, n: NodeId, scheme: &Scheme) -> RunP {
             "a:noFill" => r.no_fill = true,
             "a:latin" => r.latin = dom.attr(c, "typeface").map(|s| s.to_string()),
             "a:highlight" => r.highlight = scheme.color_in(dom, c, None),
-            "a:hlinkClick" => r.link = Some(dom.attr(c, "r:id").unwrap_or("").to_string()),
+            "a:hlinkClick" => {
+                let rid = dom.attr(c, "r:id").unwrap_or("");
+                let act = dom.attr(c, "action").unwrap_or("");
+                if !rid.is_empty() || !act.is_empty() {
+                    r.link = Some(format!("{rid}\t{act}"));
+                }
+            }
             _ => {}
         }
+    }
+    if r.link.is_some() {
+        // links show in the theme's link colour, underlined
+        r.color = Some(Rgba::new(scheme.named("hlink")));
+        r.u = Some("sng".to_string());
     }
     r
 }

@@ -85,6 +85,7 @@ class SlideCanvas(Gtk.Box):
         self.show_ruler = False
         self.show_grid = False
         self.show_guides = False
+        self.crop = None                 # picture being cropped
 
     # ------------------------------------------------------------ geometry
     @property
@@ -143,10 +144,19 @@ class SlideCanvas(Gtk.Box):
         i = self.index
         if i is None or i >= self.deck.slide_count():
             return None, []
-        key = (i, self.deck.version, round(self.scale, 4))
-        if self.cache is not None and self.cache[:3] == key:
-            return self.cache[3], self.cache[4]
-        w, h, stride, data, shapes = self.deck.render(i, self.scale, True)
+        hide = self.crop["id"] if self.crop is not None else None
+        key = (i, self.deck.version, round(self.scale, 4), hide)
+        if self.cache is not None and self.cache[:4] == key:
+            return self.cache[4], self.cache[5]
+        if hide is not None:
+            # the picture being cropped is drawn by the crop view
+            w, h, stride, data, shapes = self.deck.render(i, self.scale, True, {hide: (1.0, 0.0, 0.0, 1.0, 1.0, 0.0, True, "", 1.0)})
+            keep = {x["id"]: x for x in self.shapes}
+            shapes = [keep.get(x["id"], x) for x in shapes]
+            if hide in keep and all(x["id"] != hide for x in shapes):
+                shapes.append(keep[hide])
+        else:
+            w, h, stride, data, shapes = self.deck.render(i, self.scale, True)
         surf = surface_from(w, h, stride, data)
         self.cache = key + (surf, shapes)
         self.shapes = shapes
@@ -230,8 +240,182 @@ class SlideCanvas(Gtk.Box):
         cur = getattr(self.win.ribbon, "current", None)
         if cur is not None and cur.name == "Animations":
             self._draw_anim_tags(cr)
+        self._draw_comment_markers(cr)
+        if self.crop is not None:
+            self._draw_crop(cr)
+            return
         self._draw_selection(cr)
         self._draw_drag(cr)
+
+    # ------------------------------------------------------------ comment markers
+    def _comment_rects(self):
+        out = []
+        for idx, ini, x, y in self.win.comment_markers():
+            X, Y = self.to_px(x, y)
+            out.append((idx, ini, X, Y, 22, 18))
+        return out
+
+    def _draw_comment_markers(self, cr):
+        for _idx, ini, X, Y, w, h in self._comment_rects():
+            cr.save()
+            cr.rectangle(X, Y, w, h)
+            cr.set_source_rgb(1.0, 0.95, 0.75)
+            cr.fill_preserve()
+            cr.set_source_rgb(0.55, 0.45, 0.1)
+            cr.set_line_width(1)
+            cr.stroke()
+            cr.move_to(X + 4, Y + h)
+            cr.line_to(X + 4, Y + h + 5)
+            cr.line_to(X + 10, Y + h)
+            cr.set_source_rgb(0.55, 0.45, 0.1)
+            cr.stroke()
+            cr.select_font_face("Sans", 0, 1)
+            cr.set_font_size(9)
+            e = cr.text_extents(ini[:2])
+            cr.move_to(X + (w - e.width) / 2 - e.x_bearing, Y + 12.5)
+            cr.set_source_rgb(0.2, 0.15, 0.0)
+            cr.show_text(ini[:2])
+            cr.restore()
+
+    def comment_at(self, x, y):
+        for idx, _ini, X, Y, w, h in self._comment_rects():
+            if X <= x <= X + w and Y <= y <= Y + h + 5:
+                return idx
+        return None
+
+    # ------------------------------------------------------------ crop
+    def start_crop(self, sid):
+        s = self.shape(sid)
+        cr = self.deck.crop(self.index, sid)
+        if s is None or cr is None:
+            return False
+        l, t, r, b = cr
+        fw, fh = s["w"] / max(0.01, 1 - l - r), s["h"] / max(0.01, 1 - t - b)
+        self.leave_text()
+        self.sel = [sid]
+        self.crop = {"id": sid, "full": [s["x"] - l * fw, s["y"] - t * fh, fw, fh],
+                     "box": [s["x"], s["y"], s["w"], s["h"]], "orig": (l, t, r, b), "pix": None}
+        try:
+            from gi.repository import GdkPixbuf
+            data = self.deck.picture_data(self.index, sid)
+            ld = GdkPixbuf.PixbufLoader()
+            ld.write(data)
+            ld.close()
+            self.crop["pix"] = ld.get_pixbuf()
+        except Exception:
+            pass
+        self.queue()
+        return True
+
+    def crop_values(self):
+        c = self.crop
+        fx, fy, fw, fh = c["full"]
+        x, y, w, h = c["box"]
+        return ((x - fx) / fw, (y - fy) / fh, (fx + fw - x - w) / fw, (fy + fh - y - h) / fh)
+
+    def finish_crop(self):
+        c = self.crop
+        if c is None:
+            return
+        self.crop = None
+        fx, fy, fw, fh = c["full"]
+        x, y, w, h = c["box"]
+        vals = ((x - fx) / fw, (y - fy) / fh, (fx + fw - x - w) / fw, (fy + fh - y - h) / fh)
+        if any(abs(a - b) > 1e-5 for a, b in zip(vals, c["orig"])) or abs(fx + vals[0] * fw - x) > 1e-3:
+            self.deck.set_crop(self.index, c["id"], *[max(0.0, v) for v in vals], x, y, w, h)
+            self.win.changed(slide=True)
+        self.queue()
+
+    def _crop_handles(self):
+        x, y, w, h = self.crop["box"]
+        pts = {"nw": (x, y), "n": (x + w / 2, y), "ne": (x + w, y), "e": (x + w, y + h / 2), "se": (x + w, y + h),
+               "s": (x + w / 2, y + h), "sw": (x, y + h), "w": (x, y + h / 2)}
+        return {k: self.to_px(*p) for k, p in pts.items()}
+
+    def _draw_crop(self, cr):
+        c = self.crop
+        fx, fy, fw, fh = c["full"]
+        X, Y = self.to_px(fx, fy)
+        W, H = fw * self.scale, fh * self.scale
+        bx, by = self.to_px(c["box"][0], c["box"][1])
+        bw, bh = c["box"][2] * self.scale, c["box"][3] * self.scale
+        pix = c["pix"]
+        cr.save()
+        if pix is not None:
+            cr.translate(X, Y)
+            cr.scale(W / pix.get_width(), H / pix.get_height())
+            Gdk.cairo_set_source_pixbuf(cr, pix, 0, 0)
+            cr.paint_with_alpha(0.35)
+        cr.restore()
+        if pix is not None:
+            cr.save()
+            cr.rectangle(bx, by, bw, bh)
+            cr.clip()
+            cr.translate(X, Y)
+            cr.scale(W / pix.get_width(), H / pix.get_height())
+            Gdk.cairo_set_source_pixbuf(cr, pix, 0, 0)
+            cr.paint()
+            cr.restore()
+        cr.set_source_rgb(0.4, 0.4, 0.4)
+        cr.set_line_width(1)
+        cr.set_dash([3, 3])
+        cr.rectangle(X + 0.5, Y + 0.5, W, H)
+        cr.stroke()
+        cr.set_dash([])
+        cr.rectangle(bx + 0.5, by + 0.5, bw, bh)
+        cr.stroke()
+        # PowerPoint's black crop handles
+        cr.set_source_rgb(0, 0, 0)
+        L = 12
+        for name, (hx, hy) in self._crop_handles().items():
+            if len(name) == 2:
+                sx = 1 if "w" in name else -1
+                sy = 1 if "n" in name else -1
+                cr.rectangle(hx, hy, sx * L, sy * 4)
+                cr.rectangle(hx, hy, sx * 4, sy * L)
+            elif name in ("n", "s"):
+                cr.rectangle(hx - L / 2, hy - (0 if name == "n" else 4), L, 4)
+            else:
+                cr.rectangle(hx - (0 if name == "w" else 4), hy - L / 2, 4, L)
+            cr.fill()
+
+    def _crop_press(self, ev):
+        for name, (hx, hy) in self._crop_handles().items():
+            if abs(hx - ev.x) <= 9 and abs(hy - ev.y) <= 9:
+                self.drag = {"kind": "crop", "handle": name, "start": (ev.x, ev.y), "box": list(self.crop["box"]), "moved": False}
+                return True
+        sx, sy = self.to_slide(ev.x, ev.y)
+        fx, fy, fw, fh = self.crop["full"]
+        if fx <= sx <= fx + fw and fy <= sy <= fy + fh:
+            self.drag = {"kind": "croppan", "start": (ev.x, ev.y), "full": list(self.crop["full"]), "moved": False}
+            return True
+        self.finish_crop()
+        return False
+
+    def _crop_motion(self, d, ev):
+        dx = (ev.x - d["start"][0]) / self.scale
+        dy = (ev.y - d["start"][1]) / self.scale
+        fx, fy, fw, fh = self.crop["full"]
+        if d["kind"] == "crop":
+            x, y, w, h = d["box"]
+            l, t, r, b = x, y, x + w, y + h
+            hd = d["handle"]
+            if "w" in hd:
+                l = min(max(fx, x + dx), r - 4)
+            if "e" in hd:
+                r = max(min(fx + fw, x + w + dx), l + 4)
+            if "n" in hd:
+                t = min(max(fy, y + dy), b - 4)
+            if "s" in hd:
+                b = max(min(fy + fh, y + h + dy), t + 4)
+            self.crop["box"] = [l, t, r - l, b - t]
+        else:
+            x, y, w, h = self.crop["box"]
+            ox, oy = d["full"][0], d["full"][1]
+            nx = min(x, max(x + w - fw, ox + dx))
+            ny = min(y, max(y + h - fh, oy + dy))
+            self.crop["full"] = [nx, ny, fw, fh]
+        self.queue()
 
     def play_animation(self, pl):
         self.anim_play = (pl, time.time())
@@ -575,6 +759,19 @@ class SlideCanvas(Gtk.Box):
         if self.insert_mode is not None:
             self.drag = {"kind": "draw", "what": self.insert_mode, "start": (ev.x, ev.y), "now": (ev.x, ev.y)}
             return True
+        if self.crop is not None and self._crop_press(ev):
+            return True
+        k = self.comment_at(ev.x, ev.y)
+        if k is not None:
+            self.win._show_comment(self.index, k)
+            return True
+        if ctrl and ev.type == Gdk.EventType.BUTTON_PRESS:
+            s = self.hit_shape(sx, sy)
+            t = self.win.link_under(s, sx, sy) if s is not None else None
+            if t:
+                from .review_ui import follow_link
+                follow_link(self.win, t, self.win.go_slide)
+                return True
         if ev.type == Gdk.EventType._2BUTTON_PRESS:
             s = self.hit_shape(sx, sy)
             if s is not None and self.edit is not None and self.edit.base == s["id"]:
@@ -681,6 +878,9 @@ class SlideCanvas(Gtk.Box):
         shift = bool(ev.state & Gdk.ModifierType.SHIFT_MASK)
         if d["kind"] in ("band", "draw"):
             self.queue()
+            return True
+        if d["kind"] in ("crop", "croppan"):
+            self._crop_motion(d, ev)
             return True
         if d["kind"] == "textsel":
             if self.edit is not None:
@@ -798,6 +998,8 @@ class SlideCanvas(Gtk.Box):
             return True
         if d["kind"] == "textsel":
             self.win.selection_changed()
+            return True
+        if d["kind"] in ("crop", "croppan"):
             return True
         if not d["moved"]:
             self.queue()
@@ -1165,6 +1367,9 @@ class SlideCanvas(Gtk.Box):
         if self.insert_mode is not None and name == "Escape":
             self.insert_mode = None
             self.win.insert_mode_done()
+            return True
+        if self.crop is not None and name in ("Escape", "Return", "KP_Enter"):
+            self.finish_crop()
             return True
         e = self.edit
         if e is not None:

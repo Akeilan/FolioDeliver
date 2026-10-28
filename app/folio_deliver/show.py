@@ -20,12 +20,34 @@ class ShowState:
         n = self.deck.slide_count()
         # hidden slides are skipped (unless the show starts on one)
         self.order = [i for i in range(n) if hidden_too or not self.deck.is_hidden(i) or i == start]
+        # Set Up Show
+        try:
+            kind, self.looped, self.no_anim, rfrom, rto, self.use_timings, pen = self.deck.show_settings()
+        except Exception:
+            kind, self.looped, self.no_anim, rfrom, rto, self.use_timings, pen = "presented", False, False, 0, 0, True, "FF0000"
+        self.kiosk = kind == "kiosk" and not hidden_too
+        self.browsed = kind == "browsed" and not hidden_too
+        if hidden_too:
+            self.looped, self.no_anim, self.use_timings = False, False, True
+        if (rfrom or rto) and not hidden_too:
+            lo, hi = max(1, rfrom) - 1, (rto if rto > 0 else n) - 1
+            ranged = [i for i in self.order if lo <= i <= hi]
+            if ranged:
+                self.order = ranged
+                if start not in ranged:
+                    start = ranged[0]
         self.pos = self.order.index(start) if start in self.order else 0
         self.screen = None           # None | "black" | "white"
         self.ended = False
         self.ink = {}                # slide index -> [(tool, color, width, [(x, y)])]
         self.tool = "arrow"          # arrow | pen | highlighter | eraser | laser
         self.pen_color = PEN_COLORS[0][1]
+        try:
+            if pen and pen.upper() != "FF0000":
+                v = int(pen, 16)
+                self.pen_color = ((v >> 16 & 255) / 255.0, (v >> 8 & 255) / 255.0, (v & 255) / 255.0)
+        except ValueError:
+            pass
         self.listeners = []
         self.started = time.time()
         self.paused_at = None
@@ -45,7 +67,7 @@ class ShowState:
     def _load_player(self, at_end=False):
         from .anim import Player
         try:
-            self.player = Player(self.deck, self.index)
+            self.player = None if getattr(self, "no_anim", False) else Player(self.deck, self.index)
         except Exception:
             self.player = None
         n = len(self.player.groups) if self.player else 0
@@ -116,6 +138,8 @@ class ShowState:
     def go(self, pos):
         if not self.order:
             return
+        if pos >= len(self.order) and getattr(self, "looped", False):
+            pos = 0
         if pos >= len(self.order):
             # past the last slide: the black "End of slide show" screen, then out
             if self.screen == "end":
@@ -134,7 +158,7 @@ class ShowState:
         if self.screen in ("black", "white"):
             self.screen = None
         kind, opt, dur, click, after = self.deck.transition(self.index)
-        self.no_click = not click
+        self.no_click = not click or self.kiosk
         if old is not None and pos == (self.order.index(old) + 1 if old in self.order else -1) and kind not in ("none",):
             self.trans = (old, self.index, kind, opt, max(0.05, dur or 0.75), time.time())
         else:
@@ -149,6 +173,8 @@ class ShowState:
         if getattr(self, "_adv", None):
             GLib.source_remove(self._adv)
             self._adv = None
+        if not getattr(self, "use_timings", True) and not getattr(self, "kiosk", False):
+            after = None
         if after is not None and after >= 0:
             delay = after + (self.trans[4] if self.trans else 0)
 
@@ -301,6 +327,11 @@ class ShowWindow(Gtk.Window):
             self.move(geo.x, geo.y)
             self.resize(geo.width, geo.height)
             self.fullscreen_on_monitor(self.get_screen(), self._monitor_index(monitor))
+        elif getattr(st, "browsed", False):
+            # Browsed by an individual: a window
+            self.set_decorated(True)
+            self.set_title("%s - Slide Show" % st.win.title_text())
+            self.resize(960, 600)
         else:
             self.fullscreen()
         self._set_cursor()
@@ -396,10 +427,63 @@ class ShowWindow(Gtk.Window):
         if st.tool == "eraser":
             self._erase(ev)
             return True
+        t = self.link_at(ev.x, ev.y)
+        if t:
+            self.follow(t)
+            return True
         if st.tool == "laser" or st.no_click:
             return True
         st.next()
         return True
+
+    def link_at(self, x, y):
+        """The link (text or object click action) under a window point."""
+        st = self.st
+        if st.screen is not None or st.tool != "arrow":
+            return None
+        i = st.index
+        cache = getattr(self, "_link_shapes", None)
+        if cache is None or cache[0] != (i, st.deck.version):
+            shapes = [s for s in st.deck.shapes(i)]
+            cache = self._link_shapes = ((i, st.deck.version), shapes)
+        sx, sy = self.to_slide(x, y)
+        for s in reversed(cache[1]):
+            if not (s["x"] <= sx <= s["x"] + s["w"] and s["y"] <= sy <= s["y"] + s["h"]):
+                continue
+            t = st.deck.shape_link(i, s["id"])
+            if t:
+                return t
+            if s["has_text"]:
+                try:
+                    p, o = st.deck.hit(i, s["id"], sx, sy)
+                    t = st.deck.link_at(i, s["id"], p, o)
+                    if t and any(rx <= sx <= rx + rw and ry <= sy <= ry + rh
+                                 for rx, ry, rw, rh in st.deck.selection_rects(i, s["id"], (p, max(0, o - 1)), (p, o + 1))):
+                        return t
+                except Exception:
+                    pass
+        return None
+
+    def follow(self, t):
+        st = self.st
+        pos = st.pos
+        if t.startswith("slide:"):
+            st.goto_slide(int(t[6:]))
+        elif t == "next":
+            st.go(pos + 1) if pos + 1 < len(st.order) else st.end()
+        elif t == "prev":
+            st.go(max(0, pos - 1))
+        elif t == "first":
+            st.go(0)
+        elif t == "last":
+            st.go(len(st.order) - 1)
+        elif t == "end":
+            st.end()
+        else:
+            try:
+                Gtk.show_uri_on_window(self, t, Gdk.CURRENT_TIME)
+            except Exception:
+                pass
 
     def _erase(self, ev):
         st = self.st
@@ -412,6 +496,13 @@ class ShowWindow(Gtk.Window):
 
     def on_motion(self, area, ev):
         st = self.st
+        if st.tool == "arrow" and not self.hide_pointer:
+            over = self.link_at(ev.x, ev.y) is not None
+            if over != getattr(self, "_over_link", False):
+                self._over_link = over
+                w = area.get_window()
+                if w is not None:
+                    w.set_cursor(Gdk.Cursor.new_from_name(w.get_display(), "pointer" if over else "default"))
         if st.tool == "laser":
             self.laser = (ev.x, ev.y)
             area.queue_draw()
@@ -753,7 +844,7 @@ def start(win, index, presenter=False):
     if not st.order:
         return None
     _k, _o, _d, click, after = st.deck.transition(st.index)
-    st.no_click = not click
+    st.no_click = not click or st.kiosk
     st._schedule_advance(after)
     disp = Gdk.Display.get_default()
     n = disp.get_n_monitors() if disp else 1
@@ -761,7 +852,7 @@ def start(win, index, presenter=False):
     if primary is None and disp is not None and n:
         primary = disp.get_monitor(0)
     use_presenter = win.app.settings.get("presenter_view", True)
-    if n >= 2 and use_presenter:
+    if n >= 2 and use_presenter and not st.browsed:
         other = None
         for k in range(n):
             m = disp.get_monitor(k)
