@@ -110,6 +110,19 @@ class DeliverApp(Gtk.Application):
         appearance.apply_initial()
         self._apply_dark(appearance.is_dark())
         appearance.on_change(self._apply_dark)
+        # X2-01: every other window the app opens (dialogs, Find, Clipboard...) gets the app's own
+        # dialog colours, so a dark or coloured desktop theme never shows through
+        from gi.repository import GObject
+
+        def _own(w, *a):
+            try:
+                if (w.get_window_type() == Gtk.WindowType.TOPLEVEL and not hasattr(w, "ribbon")
+                        and not isinstance(w, Gtk.FileChooserDialog)):
+                    w.get_style_context().add_class("folio-dialog")
+            except Exception:
+                pass
+            return True
+        GObject.add_emission_hook(Gtk.Window, "realize", _own)
 
     def _apply_dark(self, dark):
         screen = Gdk.Screen.get_default()
