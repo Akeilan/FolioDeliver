@@ -407,3 +407,48 @@ popover check:not(:checked):not(:indeterminate), popover radio:not(:checked) {
 .folio-bs-navbtn:hover { background: alpha(#ffffff, 0.30); }
 .folio-bs-navbtn.active { background: alpha(#ffffff, 0.45); }
 .folio-bs-navbtn.active label { font-weight: bold; }
+
+/* ---------- X2-01: the app's own text colours, whatever the desktop theme ---------- */
+.folio-backstage, .folio-bs-body, .folio-backstage button, .folio-backstage checkbutton,
+.folio-backstage radiobutton, .folio-backstage entry, .folio-backstage combobox button { color: #262626; }
+.folio-bs-nav, .folio-bs-navbtn, .folio-bs-navbtn label, .folio-bs-navbtn image { color: #1a1a1a; }
+.folio-titlebar, .folio-titlebar button, .folio-titlebar label { color: @title_fg; }
+.folio-status, .folio-status button, .folio-status label { color: @status_fg; }
+.folio-backstage button:not(.flat):not(.suggested-action):not(.link) { background: #ffffff; background-image: none;
+  border: 1px solid #c8c8c8; box-shadow: none; }
+.folio-backstage button:not(.flat):not(.suggested-action):not(.link):hover { background: #f0f0f0; }
+.folio-backstage entry { background: #ffffff; background-image: none; border: 1px solid #c8c8c8; box-shadow: none; }
+.folio-backstage list, .folio-backstage list row { background-color: transparent; }
+.folio-backstage .dim-label { color: #6a6a6a; }
+/* X2-01: dialogs and the app's other windows keep their own colours on any desktop theme */
+.folio-dialog, .folio-dialog notebook, .folio-dialog notebook header, .folio-dialog notebook stack { color: #262626; }
+.folio-dialog notebook tab { color: #262626; background: transparent; }
+.folio-dialog button:not(.folio-default):not(.suggested-action):not(.flat):not(.folio-symbol):not(.folio-symcell),
+.folio-dialog combobox button, .folio-dialog spinbutton button {
+  background-color: #fdfdfd; background-image: none; color: #262626; border: 1px solid #c8c8c8; box-shadow: none; }
+.folio-dialog button:not(.folio-default):not(.suggested-action):not(.flat):hover { background-color: #e8e8e8; }
+.folio-dialog button.flat { color: #262626; }
+.folio-dialog button.suggested-action { background-image: none; background-color: @accent; color: #1a1a1a;
+  border: 1px solid @accent_dark; }
+.folio-dialog button.suggested-action label { color: #1a1a1a; }
+.folio-dialog entry, .folio-dialog spinbutton, .folio-dialog spinbutton entry, .folio-dialog textview,
+.folio-dialog textview text { background-color: #ffffff; background-image: none; color: #262626;
+  border-color: #c8c8c8; caret-color: #262626; }
+.folio-dialog checkbutton, .folio-dialog radiobutton, .folio-dialog check, .folio-dialog radio { color: #262626; }
+.folio-dialog check, .folio-dialog radio { background-color: #ffffff; border: 1px solid #8a8a8a; }
+.folio-dialog check:checked, .folio-dialog radio:checked { background-color: @accent; border-color: @accent_dark; color: #1a1a1a; }
+.folio-dialog treeview, .folio-dialog list, .folio-dialog list row, .folio-dialog flowbox,
+.folio-dialog flowboxchild, .folio-dialog viewport { color: #262626; }
+.folio-dialog list, .folio-dialog treeview { background-color: #ffffff; }
+.folio-dialog list row:selected, .folio-dialog flowboxchild:selected { background-color: #ffe0c2; color: #1a1a1a; }
+.folio-dialog .dim-label { color: #6a6a6a; }
+.folio-dialog label:disabled, .folio-dialog button:disabled, .folio-dialog button:disabled label { color: #a0a0a0; }
+.folio-dialog scale trough { background-color: #d6d6d6; }
+popover, popover.background, menu, .menu, .context-menu { background-color: #ffffff; color: #262626; }
+popover label, menu menuitem, menu menuitem label { color: #262626; }
+menu menuitem:hover { background-color: #ffe0c2; }
+menu menuitem:disabled label, popover label:disabled { color: #a0a0a0; }
+tooltip, tooltip.background { background-color: #ffffff; color: #262626; border: 1px solid #c8c8c8; }
+tooltip label { color: #262626; }
+.folio-dialog list row:not(:selected) { background-color: transparent; background-image: none; }
+.folio-dialog list row:not(:selected):hover { background-color: #fff4ea; }

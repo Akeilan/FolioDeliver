@@ -63,6 +63,25 @@ def svg_png(path, size=256):
     return bytes(data), pb.get_width(), pb.get_height()
 
 
+def _tint_for_theme(pb):
+    """Icons are drawn in near-black; in dark mode show them light so they can be seen
+    (the inserted icon keeps its own colour)."""
+    from . import appearance
+    if not appearance.is_dark():
+        return pb
+    import cairo
+    w, h = pb.get_width(), pb.get_height()
+    src = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    cr = cairo.Context(src)
+    Gdk.cairo_set_source_pixbuf(cr, pb, 0, 0)
+    cr.paint()
+    out = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    cr = cairo.Context(out)
+    cr.set_source_rgb(0.9, 0.9, 0.9)
+    cr.mask_surface(src, 0, 0)
+    return Gdk.pixbuf_get_from_surface(out, 0, 0, w, h)
+
+
 def icons_dialog(win):
     """Insert Icons: browse and search; returns the chosen SVG paths."""
     files = icon_files()
@@ -110,7 +129,7 @@ def icons_dialog(win):
                 pb = GdkPixbuf.Pixbuf.new_from_file_at_size(files[(c, n)], 40, 40)
             except Exception:
                 continue
-            img = Gtk.Image.new_from_pixbuf(pb)
+            img = Gtk.Image.new_from_pixbuf(_tint_for_theme(pb))
             img.set_tooltip_text(n.replace("-", " "))
             img.path = files[(c, n)]
             flow.add(img)
