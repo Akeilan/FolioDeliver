@@ -1,5 +1,5 @@
 """Icons: Folio's own SVGs (folio_deliver/icons), then the open-licensed Colibre set
-(MPL 2.0 / CC BY-SA 4.0) shipped with Deliver, its blues recoloured in Deliver's orange."""
+(MPL 2.0 / CC BY-SA 4.0) shipped with Show, its blues recoloured in Show's orange."""
 import os
 import re
 import weakref

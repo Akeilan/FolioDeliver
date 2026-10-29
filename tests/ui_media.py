@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): icons, screenshots, photo album, objects, media, ink, triggers, motion paths, equations.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): icons, screenshots, photo album, objects, media, ink, triggers, motion paths, equations.
 import os
 import sys
 import tempfile

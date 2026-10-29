@@ -1,4 +1,4 @@
-# X2-01: run inside Folio Deliver (FOLIO_TEST_SCRIPT) started under GTK_THEME=Adwaita:dark or
+# X2-01: run inside Folio Show (FOLIO_TEST_SCRIPT) started under GTK_THEME=Adwaita:dark or
 # FolioTestColour; every ribbon tab, the File view and the main dialogs keep their own colours.
 import os
 import sys

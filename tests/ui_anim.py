@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): drives the window as a user would and checks the results.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): drives the window as a user would and checks the results.
 import os
 import sys
 import tempfile

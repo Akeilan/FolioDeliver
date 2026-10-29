@@ -1,5 +1,5 @@
 """Charts on slides: Insert Chart, the Chart Design tab and its commands (the chart code is
-shared with Folio Writer: charts_classic and charts_model)."""
+shared with Folio Page: charts_classic and charts_model)."""
 from . import charts_classic as classic
 from . import charts_model as CM
 

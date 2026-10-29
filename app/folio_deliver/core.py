@@ -4,7 +4,7 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for p in (os.path.join(_HERE, ".."),                                  # /usr/lib/folio-deliver
+for p in (os.path.join(_HERE, ".."),                                  # /usr/lib/folio-show
           os.path.join(_HERE, "..", "..", "engine", "out"),
           os.path.join(_HERE, "..", "..", "engine", "target", "release")):
     p = os.path.abspath(p)

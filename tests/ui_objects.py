@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): charts and SmartArt.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): charts and SmartArt.
 import os
 import sys
 import tempfile

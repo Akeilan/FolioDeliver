@@ -2,7 +2,7 @@
 name = "deliver_core"
 version = "0.1.0"
 edition = "2021"
-description = "Folio Deliver presentation engine: .pptx model, slide and text layout, rendering and editing"
+description = "Folio Show presentation engine: .pptx model, slide and text layout, rendering and editing"
 license = "MIT"
 
 [lib]

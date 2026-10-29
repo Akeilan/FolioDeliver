@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): Backlog 3 — Morph and the transition gallery,
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): Backlog 3 — Morph and the transition gallery,
 # Merge Shapes, the Eyedropper, actions, Zoom, Protect Presentation, Compare, Compress Media,
 # embedded fonts, 3-D models and Cameo.
 import os
