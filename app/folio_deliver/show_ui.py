@@ -661,7 +661,7 @@ class ClipboardPane(Gtk.Window):
 
 
 def _die_with_parent():
-    """Child processes (ffmpeg recording) stop when Deliver does, rather than recording on."""
+    """Child processes (ffmpeg recording) stop when Show does, rather than recording on."""
     try:
         import ctypes
         import signal

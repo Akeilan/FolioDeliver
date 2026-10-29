@@ -226,7 +226,7 @@ class Builder:
 
 
 
-# ======================================================================== Deliver
+# ======================================================================== Show
 SHAPE_SETS = [
     ("Lines", [("line", "Line", "line"), ("straightConnector1", "Arrow", "lineendstyle")]),
     ("Rectangles", [("rect", "Rectangle", "rect"), ("roundRect", "Rectangle: Rounded Corners", "rect_rounded"),

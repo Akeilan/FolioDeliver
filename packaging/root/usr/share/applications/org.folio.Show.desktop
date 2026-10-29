@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Folio Show
+GenericName=Presentation
+Comment=Create and give presentations
+Exec=folio-show %F
+Icon=folio-show
+Terminal=false
+Categories=Office;Presentation;
+MimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.openxmlformats-officedocument.presentationml.slideshow;application/vnd.openxmlformats-officedocument.presentationml.template;application/vnd.ms-powerpoint.presentation.macroEnabled.12;application/vnd.ms-powerpoint;application/vnd.oasis.opendocument.presentation;
+Keywords=presentation;deliver;slides;pptx;powerpoint;slideshow;
+StartupWMClass=org.folio.Show
+Actions=Show;
+
+[Desktop Action Show]
+Name=Start Slide Show
+Exec=folio-show --show %f

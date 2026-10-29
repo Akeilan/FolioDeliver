@@ -1,4 +1,4 @@
-/* Folio Deliver — dark mode, used when the desktop is set to dark (S-08). The chrome goes dark,
+/* Folio Show — dark mode, used when the desktop is set to dark (S-08). The chrome goes dark,
    the slides keep their own colours. Loaded after theme.css and deliver.css. */
 @define-color ribbon_bg #2b2b2b;
 @define-color ribbon_fg #f0f0f0;
@@ -70,7 +70,7 @@ popover label { color: #f0f0f0; }
 menu, .menu, .context-menu { background-color: #2b2b2b; color: #f0f0f0; }
 menu menuitem:hover { background: #5a3a1a; }
 
-/* the light-chrome rules in theme.css force dark text for light desktops' sake; in Deliver's own
+/* the light-chrome rules in theme.css force dark text for light desktops' sake; in Show's own
    dark mode the ribbon is dark, so its text goes light again */
 .folio-ribbon, .folio-tabs, .folio-status, .folio-ribbon label, .folio-tabs label, .folio-status label,
 .folio-ribbon checkbutton label, .folio-ribbon radiobutton label, .folio-ribbon checkbutton { color: #f0f0f0; }

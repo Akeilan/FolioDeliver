@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): Rehearse Timings, custom shows, video, Clipboard pane, Thesaurus, pasting between presentations.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): Rehearse Timings, custom shows, video, Clipboard pane, Thesaurus, pasting between presentations.
 import os
 import sys
 import tempfile

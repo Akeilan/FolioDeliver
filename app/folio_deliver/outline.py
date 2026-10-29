@@ -1,5 +1,5 @@
 """Outlines for Insert > New Slide > Slides from Outline: a text file (indent = level) or a
-Folio Writer / Word document (Heading 1 = slide title, Heading 2..n = bullet levels)."""
+Folio Page / Word document (Heading 1 = slide title, Heading 2..n = bullet levels)."""
 import re
 import zipfile
 

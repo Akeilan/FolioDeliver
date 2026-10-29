@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): every command on the ribbon and in its menus,
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): every command on the ribbon and in its menus,
 # with text being edited, with an object selected and with nothing selected; every dialog is
 # answered OK, then Cancel. Nothing may raise. Writes the list of commands still unavailable.
 import os

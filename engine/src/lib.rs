@@ -1,4 +1,4 @@
-//! Folio Deliver's presentation engine.
+//! Folio Show's presentation engine.
 pub mod color;
 pub mod model;
 pub mod scene;

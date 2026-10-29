@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): links, crop, comments, Outline view and Notes Page view.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): links, crop, comments, Outline view and Notes Page view.
 import os
 import sys
 import tempfile

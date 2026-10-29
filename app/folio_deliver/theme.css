@@ -1,4 +1,4 @@
-/* Folio Deliver — window chrome (shared look with the suite; accent Tennessee orange). Light theme; dark overrides at the end. */
+/* Folio Show — window chrome (shared look with the suite; accent Tennessee orange). Light theme; dark overrides at the end. */
 @define-color theme_selected_bg_color #ff8200;
 @define-color selected_bg_color #ff8200;
 @define-color accent_color #ff8200;
@@ -399,7 +399,7 @@ popover entry selection { background-color: @accent; color: #1a1a1a; }
 popover check:not(:checked):not(:indeterminate), popover radio:not(:checked) {
   background-image: none; background-color: #ffffff; border: 1px solid #8a8a8a; }
 
-/* ---------- readable on orange (Deliver) ---------- */
+/* ---------- readable on orange (Show) ---------- */
 .folio-titlebar entry.folio-search image, .folio-titlebar entry.folio-search { color: #1a1a1a; }
 .folio-titlebar button.titlebutton { color: #1a1a1a; }
 .folio-titlebar button.titlebutton.close:hover image { color: #ffffff; }

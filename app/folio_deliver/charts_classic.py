@@ -1,4 +1,4 @@
-"""Chart types, their pictures, the Insert Chart dialog and the data sheet: shared with Folio Writer."""
+"""Chart types, their pictures, the Insert Chart dialog and the data sheet: shared with Folio Page."""
 from gi.repository import Gdk, GLib, Gtk
 
 

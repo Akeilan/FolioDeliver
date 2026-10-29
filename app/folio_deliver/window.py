@@ -61,7 +61,7 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         self.set_default_size(geo.get("w", 1280), geo.get("h", 820))
         if geo.get("max", True):
             self.maximize()
-        self.set_icon_name("folio-deliver")
+        self.set_icon_name("folio-show")
         self.dialogs = Dialogs(self)
         self.thumbs = Thumbs(self)
 
@@ -284,7 +284,7 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
 
     def _import_legacy(self, path):
         """Old formats go through LibreOffice as a converter only."""
-        out = tempfile.mkdtemp(prefix="folio-deliver-")
+        out = tempfile.mkdtemp(prefix="folio-show-")
         cmd = ["soffice", "--headless", "--norestore", "--convert-to", "pptx:Impress MS PowerPoint 2007 XML",
                "--outdir", out, path]
         try:
@@ -1207,7 +1207,7 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             c.select([sid])
 
     def paste_table(self, grid):
-        """Cells copied from Folio Sheets (or any spreadsheet: tab-separated rows) become a table."""
+        """Cells copied from Folio Sheet (or any spreadsheet: tab-separated rows) become a table."""
         rows, cols = len(grid), max(len(r) for r in grid)
         sw, sh = self.deck.size()
         w = min(sw * 0.8, max(sw * 0.3, cols * sw * 0.12))
@@ -1685,7 +1685,7 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         d.set_version(VERSION)
         d.set_comments("Presentations, made for a seamless move from PowerPoint.\n"
                        "Opens and saves .pptx with its own engine.")
-        d.set_logo_icon_name("folio-deliver")
+        d.set_logo_icon_name("folio-show")
         d.run()
         d.destroy()
 

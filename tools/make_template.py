@@ -1,4 +1,4 @@
-"""Writes Folio Deliver's blank presentation (share/templates/Blank.pptx) from scratch:
+"""Writes Folio Show's blank presentation (share/templates/Blank.pptx) from scratch:
 16:9 slides, the default Office colours and fonts, a slide master with the usual eleven
 layouts, and one Title Slide."""
 import os
@@ -242,7 +242,7 @@ CORE = HDR + ('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/pa
     "PowerPoint Presentation", "Presentation")
 APP = HDR + ('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
              'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-             '<Application>Folio Deliver</Application><PresentationFormat>Widescreen</PresentationFormat>'
+             '<Application>Folio Show</Application><PresentationFormat>Widescreen</PresentationFormat>'
              '<Slides>1</Slides></Properties>')
 PRESPROPS = HDR + '<p:presentationPr %s/>' % NS
 VIEWPROPS = HDR + ('<p:viewPr %s><p:normalViewPr><p:restoredLeft sz="15000"/><p:restoredTop sz="94660"/></p:normalViewPr>'

@@ -1,4 +1,4 @@
-# Run inside Folio Deliver (FOLIO_TEST_SCRIPT): Slide Master, Notes Master and Handout Master views.
+# Run inside Folio Show (FOLIO_TEST_SCRIPT): Slide Master, Notes Master and Handout Master views.
 import os
 import sys
 import tempfile

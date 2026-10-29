@@ -1,4 +1,4 @@
-"""Folio Deliver application: windows, recent files, settings."""
+"""Folio Show application: windows, recent files, settings."""
 import json
 import os
 import subprocess
@@ -19,8 +19,22 @@ GLib.set_prgname(APP_ID)
 GLib.set_application_name(APP_NAME)
 Gdk.set_program_class(APP_ID)
 
-CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
-                      "folio-deliver")
+_CONFIG_ROOT = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+CONFIG = os.path.join(_CONFIG_ROOT, "folio-show")
+OLD_CONFIG = os.path.join(_CONFIG_ROOT, "folio-deliver")   # before the rename to Folio Show (0.9.0)
+
+
+def carry_over_settings():
+    """First start after the rename: settings, recent files and the rest come over from Folio
+    Deliver's folder (which is left in place)."""
+    if os.path.exists(CONFIG) or not os.path.isdir(OLD_CONFIG):
+        return False
+    import shutil
+    try:
+        shutil.copytree(OLD_CONFIG, CONFIG, symlinks=True)
+        return True
+    except OSError:
+        return False
 
 
 class DeliverApp(Gtk.Application):
@@ -34,6 +48,7 @@ class DeliverApp(Gtk.Application):
 
     # ------------------------------------------------------------ settings
     def _load_settings(self):
+        carry_over_settings()
         try:
             with open(os.path.join(CONFIG, "settings.json")) as f:
                 return json.load(f)

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Folio Show launcher (also installed as folio-deliver, its name before 0.9.0)
+export FOLIO_SHOW_SHARE=/usr/share/folio-show
+PYTHONPATH=/usr/lib/folio-show${PYTHONPATH:+:$PYTHONPATH}
+export PYTHONPATH
+exec "${FOLIO_PYTHON:-/usr/bin/python3}" -m folio_deliver "$@"

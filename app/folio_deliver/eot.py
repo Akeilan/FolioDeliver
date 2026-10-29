@@ -111,7 +111,7 @@ EMBED_DIR = os.path.join(os.path.expanduser("~"), ".local", "share", "fonts", "f
 
 
 def install_for_show(data, name):
-    """Put an embedded font where the font search finds it (removed when Deliver closes)."""
+    """Put an embedded font where the font search finds it (removed when Show closes)."""
     os.makedirs(EMBED_DIR, exist_ok=True)
     path = os.path.join(EMBED_DIR, name)
     with open(path, "wb") as f:
