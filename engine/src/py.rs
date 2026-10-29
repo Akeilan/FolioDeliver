@@ -137,11 +137,11 @@ impl PyPresentation {
     /// Render slide i at `scale` px per point: (w, h, stride, ARGB32 bytes, shapes).
     /// `anim`: shape id -> (alpha, dx, dy, sx, sy, rot, hidden, clip direction, clip amount),
     /// how the show's animations have each shape at this moment.
-    #[pyo3(signature = (i, scale, edit=true, anim=None))]
+    #[pyo3(signature = (i, scale, edit=true, anim=None, layers=0))]
     fn render<'py>(&mut self, py: Python<'py>, i: usize, scale: f64, edit: bool,
-                   anim: Option<std::collections::HashMap<u32, (f64, f64, f64, f64, f64, f64, bool, String, f64)>>)
+                   anim: Option<std::collections::HashMap<u32, (f64, f64, f64, f64, f64, f64, bool, String, f64)>>, layers: u8)
                    -> PyResult<(i32, i32, i32, Bound<'py, PyBytes>, Vec<Bound<'py, PyDict>>)> {
-        let mut opts = Opts { edit, hide: None, ..Default::default() };
+        let mut opts = Opts { edit, hide: None, layers, ..Default::default() };
         if let Some(a) = anim {
             for (id, (alpha, dx, dy, sx, sy, rot, hidden, cd, cf)) in a {
                 opts.anim.insert(id, crate::render::Anim { alpha, dx, dy, sx, sy, rot, hidden,
@@ -789,6 +789,81 @@ impl PyPresentation {
 
     fn set_shape_link(&mut self, i: usize, id: u32, target: &str) -> PyResult<()> {
         self.deck.set_shape_link(i, id, target).map_err(err)
+    }
+
+    // --------------------------------------------------------- Backlog 3
+    /// A shape's outline polygons in slide points (Merge Shapes).
+    fn shape_outline(&mut self, i: usize, id: u32) -> PyResult<Vec<Vec<(f64, f64)>>> {
+        self.deck.shape_outline(i, id).map_err(err)
+    }
+
+    /// Add an object written as XML; parts: (key, rel, stem, ext, content type, bytes, target).
+    #[pyo3(signature = (i, label, xml, parts=Vec::new()))]
+    fn insert_object_xml(&mut self, i: usize, label: &str, xml: &str,
+                         parts: Vec<(String, String, String, String, String, Vec<u8>, String)>) -> PyResult<u32> {
+        let ps = parts.into_iter().map(|(key, rel, stem, ext, ctype, data, target)|
+            crate::edit8::NewPart { key, rel, stem, ext, ctype, data, target }).collect();
+        self.deck.insert_object_xml(i, label, xml, ps).map_err(err)
+    }
+
+    #[pyo3(signature = (i, id, label, xml, parts=Vec::new()))]
+    fn replace_object_xml(&mut self, i: usize, id: u32, label: &str, xml: &str,
+                          parts: Vec<(String, String, String, String, String, Vec<u8>, String)>) -> PyResult<()> {
+        let ps = parts.into_iter().map(|(key, rel, stem, ext, ctype, data, target)|
+            crate::edit8::NewPart { key, rel, stem, ext, ctype, data, target }).collect();
+        self.deck.replace_object_xml(i, id, label, xml, ps).map_err(err)
+    }
+
+    fn object_xml(&mut self, i: usize, id: u32) -> Option<String> {
+        self.deck.object_xml(i, id)
+    }
+
+    fn slide_rel_part(&mut self, i: usize, rid: &str) -> Option<String> {
+        self.deck.slide_rel_part(i, rid)
+    }
+
+    fn set_part(&mut self, name: &str, data: Vec<u8>, label: &str) -> PyResult<()> {
+        let r = self.deck.set_part(name, data, label).map_err(err);
+        self.painter.forget_pictures();
+        r
+    }
+
+    fn media_parts(&self) -> Vec<(String, usize)> {
+        self.deck.media_parts()
+    }
+
+    fn custom_props(&mut self) -> Vec<(String, String)> {
+        self.deck.custom_props()
+    }
+
+    fn set_custom_prop(&mut self, name: &str, kind: &str, value: &str) -> PyResult<()> {
+        self.deck.set_custom_prop(name, kind, value).map_err(err)
+    }
+
+    fn embedded_fonts(&mut self) -> Vec<(String, String, String)> {
+        self.deck.embedded_fonts()
+    }
+
+    fn set_embedded_fonts(&mut self, fonts: Vec<(String, Vec<(String, Vec<u8>)>)>) -> PyResult<()> {
+        self.deck.set_embedded_fonts(fonts).map_err(err)
+    }
+
+    #[pyo3(signature = (i, id, which, target, sound=None, stop_sound=false, highlight=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn set_shape_action(&mut self, i: usize, id: u32, which: &str, target: &str, sound: Option<(Vec<u8>, String)>,
+                        stop_sound: bool, highlight: bool) -> PyResult<()> {
+        self.deck.set_shape_action(i, id, which, target, sound, stop_sound, highlight).map_err(err)
+    }
+
+    fn shape_action(&mut self, i: usize, id: u32, which: &str) -> Option<(String, String, bool, bool)> {
+        self.deck.shape_action(i, id, which)
+    }
+
+    /// Look for fonts again (after the app put a presentation's embedded fonts where the
+    /// font search finds them).
+    fn reload_fonts(&mut self) {
+        self.painter = crate::render::Painter::new();
+        self.cache = None;
     }
 
     fn shape_link(&mut self, i: usize, id: u32) -> Option<String> {

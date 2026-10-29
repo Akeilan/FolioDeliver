@@ -4,21 +4,74 @@ from gi.repository import Gdk, GLib, Gtk
 
 from .core import Presentation
 
+DIR4 = [("From Right", "l"), ("From Top", "d"), ("From Left", "r"), ("From Bottom", "u")]
+LR = [("From Right", "l"), ("From Left", "r")]
 TRANSITIONS = [
-    # (kind, label, effect options [(label, value)])
+    # (kind, label, effect options [(label, value)]); PowerPoint's gallery order
     ("none", "None", []),
-    ("cut", "Cut", [("Smoothly", ""), ("Through Black", "thruBlk")]),
+    # Subtle
+    ("morph", "Morph", [("Objects", "byObject"), ("Words", "byWord"), ("Characters", "byChar")]),
     ("fade", "Fade", [("Smoothly", ""), ("Through Black", "thruBlk")]),
     ("push", "Push", [("From Bottom", "u"), ("From Left", "r"), ("From Right", "l"), ("From Top", "d")]),
-    ("wipe", "Wipe", [("From Right", "l"), ("From Top", "d"), ("From Left", "r"), ("From Bottom", "u")]),
+    ("wipe", "Wipe", DIR4),
     ("split", "Split", [("Vertical Out", "vert"), ("Horizontal Out", "horz")]),
-    ("pull", "Reveal", [("From Right", "l"), ("From Left", "r"), ("From Top", "d"), ("From Bottom", "u")]),
-    ("cover", "Cover", [("From Right", "l"), ("From Left", "r"), ("From Top", "d"), ("From Bottom", "u")]),
+    ("reveal", "Reveal", [("Smoothly From Right", "l"), ("Smoothly From Left", "r"), ("Through Black From Right", "thruBlk")]),
+    ("cut", "Cut", [("Smoothly", ""), ("Through Black", "thruBlk")]),
     ("randomBar", "Random Bars", [("Vertical", "vert"), ("Horizontal", "horz")]),
-    ("circle", "Shape", []),
+    ("circle", "Shape", [("Circle", "circle"), ("Diamond", "diamond"), ("Plus", "plus")]),
+    ("pull", "Uncover", DIR4),
+    ("cover", "Cover", DIR4),
+    ("flash", "Flash", []),
+    # Exciting
+    ("fallOver", "Fall Over", [("Left", ""), ("Right", "invX")]),
+    ("drape", "Drape", [("Left", ""), ("Right", "invX")]),
+    ("curtains", "Curtains", []),
+    ("wind", "Wind", [("Right", ""), ("Left", "invX")]),
+    ("prestige", "Prestige", []),
+    ("fracture", "Fracture", []),
+    ("crush", "Crush", []),
+    ("peelOff", "Peel Off", [("Left", ""), ("Right", "invX")]),
+    ("pageCurlDouble", "Page Curl", [("Double Left", ""), ("Double Right", "invX")]),
+    ("airplane", "Airplane", [("Right", ""), ("Left", "invX")]),
+    ("origami", "Origami", [("Right", ""), ("Left", "invX")]),
     ("dissolve", "Dissolve", []),
+    ("checker", "Checkerboard", [("From Left", "horz"), ("From Top", "vert")]),
+    ("blinds", "Blinds", [("Vertical", "vert"), ("Horizontal", "horz")]),
+    ("wheel", "Clock", [("Clockwise", "1"), ("Wedge", "wedge")]),
+    ("ripple", "Ripple", [("Center", "center"), ("From Top-Left", "lu"), ("From Bottom-Right", "rd")]),
+    ("honeycomb", "Honeycomb", []),
+    ("glitter", "Glitter", [("Diamonds From Left", "l"), ("Diamonds From Right", "r"), ("Diamonds From Top", "u")]),
+    ("vortex", "Vortex", [("From Left", "l"), ("From Right", "r"), ("From Top", "u"), ("From Bottom", "d")]),
+    ("shred", "Shred", [("Strips In", "strip"), ("Particles In", "rectangle")]),
+    ("switch", "Switch", LR),
+    ("flip", "Flip", LR),
+    ("gallery", "Gallery", LR),
+    ("cube", "Cube", DIR4),
+    ("doors", "Doors", [("Vertical", "vert"), ("Horizontal", "horz")]),
+    ("box", "Box", DIR4),
+    ("comb", "Comb", [("Horizontal", "horz"), ("Vertical", "vert")]),
     ("zoom", "Zoom", []),
+    ("random", "Random", []),
+    # Dynamic Content
+    ("pan", "Pan", [("From Bottom", "u"), ("From Top", "d"), ("From Right", "l"), ("From Left", "r")]),
+    ("ferris", "Ferris Wheel", LR),
+    ("conveyor", "Conveyor", LR),
+    ("rotate", "Rotate", DIR4),
+    ("window", "Window", [("Vertical", "vert"), ("Horizontal", "horz")]),
+    ("orbit", "Orbit", DIR4),
+    ("flythrough", "Fly Through", [("In", "in"), ("Out", "out")]),
 ]
+TRANSITION_GROUPS = [("Subtle", "morph", "flash"), ("Exciting", "fallOver", "random"), ("Dynamic Content", "pan", "flythrough")]
+
+
+def transition_groups():
+    """[(group name, [(kind, label)])] for the gallery."""
+    out = []
+    kinds = [k for k, _l, _o in TRANSITIONS]
+    for name, first, last in TRANSITION_GROUPS:
+        a, b = kinds.index(first), kinds.index(last)
+        out.append((name, [(k, l) for k, l, _o in TRANSITIONS[a:b + 1]]))
+    return out
 
 # theme colour sets (dk1 lt1 dk2 lt2 accent1-6 hlink folHlink) — the first two as Office has them
 COLOR_SETS = [

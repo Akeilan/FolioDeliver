@@ -618,11 +618,14 @@ def build_ribbon(win):
     # ================================================================ Transitions
     t = r.building(Tab("Transitions", "K"))
     B.group(t, "Preview", [B.big("Preview", "presentationcurrentslide", "transition-preview", "P")])
+    from .more_ui import transition_groups
     tr_buttons = []
-    for k, (kind, label, _o) in enumerate(TRANSITIONS):
+    for k, (kind, label, _o) in enumerate(TRANSITIONS[:13]):
         tr_buttons.append(RibbonButton(r, label, "slidechangewindow" if kind != "none" else "r-clear-sm", "transition:" + kind,
                                        size="large", state="tr-" + kind, keytip="T%d" % k if k else "TN",
                                        tooltip=label))
+    tr_buttons.append(B.big("More Transitions", "slidechangewindow", None, "TM",
+                            menu=[(g, [(lab, "transition:" + kd) for kd, lab in items]) for g, items in transition_groups()]))
     B.group(t, "Transition to This Slide", tr_buttons +
             [MenuButton(r, "Effect Options", "r-effects-sm", lambda: _menu_pop(B, win.transition_options_menu()), size="large", keytip="E")])
     win.duration_spin = TimeSpin(win, "transition-duration", 0, 59, 0.75)
