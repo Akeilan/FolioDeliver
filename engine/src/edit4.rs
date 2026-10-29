@@ -236,6 +236,59 @@ impl Deck {
     }
 }
 
+impl Deck {
+    /// File > Info > Protect Presentation > Always Open Read-Only: PowerPoint keeps it as
+    /// p1710:readonlyRecommended in the extLst of presentationPr (MS-PPTX 2.2.16, 2.14.1.1).
+    pub fn readonly_recommended(&mut self) -> bool {
+        let Some(pp) = self.pres_props() else { return false };
+        let Ok(d) = self.pkg.xml(&pp) else { return false };
+        let Some(lst) = d.child(d.root, "p:extLst") else { return false };
+        for e in d.elements(lst) {
+            if d.attr(e, "uri") == Some(READONLY_URI) {
+                return d.elements(e).any(|r| d.name(r).ends_with("readonlyRecommended") && matches!(d.attr(r, "val"), Some("1") | Some("true")));
+            }
+        }
+        false
+    }
+
+    pub fn set_readonly_recommended(&mut self, on: bool) -> Result<(), String> {
+        let pres = self.pres.clone();
+        let pp = match self.pres_props() { Some(p) => p, None => "ppt/presProps.xml".to_string() };
+        self.begin("Always Open Read-Only", &[pp.clone(), pres.clone(), Package::rels_name(&pres), CT.to_string()]);
+        if !self.pkg.has(&pp) {
+            let doc = XmlDoc::parse(br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>"#).map_err(|e| e.to_string())?;
+            self.pkg.put_xml(&pp, doc);
+            self.pkg.set_content_type(&pp, "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml");
+            self.pkg.add_rel(&pres, &format!("{RT}presProps"), "presProps.xml");
+        }
+        let d = self.pkg.xml_mut(&pp).map_err(|e| e.to_string())?;
+        let root = d.root;
+        let lst = match d.child(root, "p:extLst") {
+            Some(l) => l,
+            None => {
+                let l = d.new_element("p:extLst", &[]);
+                d.append(root, l);
+                l
+            }
+        };
+        let old: Vec<_> = d.elements(lst).filter(|e| d.attr(*e, "uri") == Some(READONLY_URI)).collect();
+        for e in old {
+            d.detach(e);
+        }
+        if on {
+            let el = fragment(d, &format!(r#"<p:ext uri="{READONLY_URI}"><p1710:readonlyRecommended xmlns:p1710="http://schemas.microsoft.com/office/powerpoint/2017/10/main" val="1"/></p:ext>"#)).ok_or("bad xml")?;
+            d.append(lst, el);
+        } else if d.elements(lst).next().is_none() {
+            d.detach(lst);
+        }
+        self.commit();
+        Ok(())
+    }
+}
+
+const READONLY_URI: &str = "{1BD7E111-0CB8-44D6-8891-C1BB2F81B7CC}";
+
 /// Relationship ids an XML fragment refers to (r:embed, r:link, r:id, ...).
 fn rids_in(xml: &str) -> Vec<String> {
     let mut out = Vec::new();

@@ -632,13 +632,17 @@ class Backlog3Commands:
             return True
         if how == "readonly":
             on = not self.read_only_recommended()
-            self.deck.set_custom_prop("_AlwaysOpenReadOnly", "bool" if on else "", "true")
+            # stored as PowerPoint stores it: p1710:readonlyRecommended in presProps (MS-PPTX 2.14.1.1)
+            self.deck.set_readonly_recommended(on)
+            if ("_AlwaysOpenReadOnly", "true") in self.deck.custom_props():
+                self.deck.set_custom_prop("_AlwaysOpenReadOnly", "", "")      # what Folio 0.8 previews wrote
+                self.deck.merge_undo(2, "Always Open Read-Only")
             self.changed(structure=True)
             return on
         return None
 
     def read_only_recommended(self):
-        return ("_AlwaysOpenReadOnly", "true") in self.deck.custom_props()
+        return self.deck.readonly_recommended() or ("_AlwaysOpenReadOnly", "true") in self.deck.custom_props()
 
     def is_final(self):
         return ("_MarkAsFinal", "true") in self.deck.custom_props()

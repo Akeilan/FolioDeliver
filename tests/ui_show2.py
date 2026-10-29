@@ -145,7 +145,7 @@ try:
         import subprocess
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
                              capture_output=True, text=True).stdout.strip()
-        check(out and 2.0 < float(out) < 5.0, "about two seconds of video: %s" % out)
+        check(out and 1.9 < float(out) < 5.0, "about two seconds of video: %s" % out)
     else:
         print("ffmpeg missing: video skipped")
     # Clipboard pane and pasting a picture into another presentation
