@@ -119,3 +119,11 @@ menu menuitem:disabled label, popover label:disabled { color: #707070; }
 tooltip, tooltip.background { background-color: #2b2b2b; color: #f0f0f0; border-color: #555555; }
 tooltip label { color: #f0f0f0; }
 .folio-dialog list row:not(:selected):hover { background-color: #3a3a3a; }
+/* X3-05: dialogs' own title bars (client-side, as on Wayland) */
+headerbar.default-decoration, .titlebar.default-decoration, messagedialog .titlebar, .folio-dialog headerbar, .folio-dialog .titlebar {
+  background-color: #2b2b2b; background-image: none; color: #f0f0f0; border-color: #404040; box-shadow: none; }
+headerbar.default-decoration label, .titlebar.default-decoration label, messagedialog .titlebar label,
+headerbar.default-decoration .title, .titlebar.default-decoration .title { color: #f0f0f0; }
+headerbar.default-decoration button.titlebutton, .titlebar.default-decoration button.titlebutton {
+  color: #f0f0f0; background-color: transparent; background-image: none; border-color: transparent; box-shadow: none; }
+headerbar.default-decoration button.titlebutton:hover, .titlebar.default-decoration button.titlebutton:hover { background-color: #3d3d3d; }
