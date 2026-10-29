@@ -208,6 +208,8 @@ try:
     check(crypt.is_encrypted(raw) and b"PK" not in raw[:8], "the file is encrypted (Office's agile encryption)")
     check(zipfile.is_zipfile(__import__("io").BytesIO(crypt.decrypt(raw, "pass123"))), "and holds the presentation")
     w2 = win.app.new_window(None)
+    w2.dialogs.ask_password = win.dialogs.ask_password
+    w2.dialogs.info = w2.dialogs.message = lambda text, title=None: infos.append(text)
     pw_answers[:] = ["nope", "pass123"]
     w2.load(path)
     pump(0.3)
@@ -267,6 +269,7 @@ try:
     saved = win.run("compress-media:standard")
     after = sum(sz for _p, sz in d.media_parts())
     check(saved and after < before, "Compress Media makes the pictures smaller (%d -> %d)" % (before, after))
+    d.set_theme(None, None, "DejaVu Serif", "DejaVu Sans")
     d.set_pres_attr("embedTrueTypeFonts", "1")
     names, refused = win.embed_fonts_now()
     check(names and d.embedded_fonts(), "fonts embedded on save (%s)" % ", ".join(names[:3]))
@@ -290,12 +293,17 @@ try:
     win.canvas.select([mid])
     win.selection_changed()
     check(win.ribbon.tab_by_name("3D Model").button.get_visible(), "the 3D Model tab shows")
-    pic1 = d.picture_data(0, mid)
+    import re as _re
+
+    def model_pic():
+        rid = _re.search(r'<a:blip r:embed="([^"]+)"', d.object_xml(0, mid)).group(1)
+        return bytes(d.part_bytes(d.slide_rel_part(0, rid)))
+    pic1 = model_pic()
     win.run("model-view:top")
     check(b3_ui.model_info(d, 0, mid)[1] == (90.0, 0.0, 0.0), "3D Model Views: Top")
     win.run("model-turn:0,15,0")
     check(b3_ui.model_info(d, 0, mid)[1] == (90.0, 15.0, 0.0), "turn the model 15 degrees")
-    check(d.picture_data(0, mid) != pic1, "its picture follows")
+    check(model_pic() != pic1, "its picture follows")
     d.save(out)
     z = zipfile.ZipFile(out)
     check(any(n.endswith(".glb") for n in z.namelist()) and b"am3d:model3d" in z.read(d.slide_parts()[0]),

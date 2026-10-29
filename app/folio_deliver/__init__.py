@@ -1,7 +1,7 @@
 """Folio Deliver: presentations."""
 import os
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 APP_NAME = "Folio Deliver"
 APP_ID = "org.folio.Deliver"
 SHARE = os.environ.get("FOLIO_DELIVER_SHARE", "/usr/share/folio-deliver")
