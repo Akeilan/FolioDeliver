@@ -205,6 +205,8 @@ class DeliverApp(Gtk.Application):
         if win in self.windows:
             self.windows.remove(win)
         if not self.windows:
+            from . import eot
+            eot.remove_installed()
             GLib.idle_add(self.quit)
 
 

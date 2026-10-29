@@ -445,7 +445,16 @@ def color_menu(win, cmd, none_label, more=True):
                     win.run("%s:scheme:%s" % (cmd, slot))
                 else:
                     win.run("%s:%06X" % (cmd, resolve(c) & 0xFFFFFF))
-        pop.add(color_palette(pick, none_label=none_label, more=(lambda: win.run(cmd + ":more")) if more else None, popref=ref))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(color_palette(pick, none_label=none_label, more=(lambda: win.run(cmd + ":more")) if more else None, popref=ref),
+                       False, False, 0)
+        eb = Gtk.Button(label="Eyedropper")
+        eb.set_relief(Gtk.ReliefStyle.NONE)
+        eb.get_style_context().add_class("folio-menuitem")
+        eb.connect("clicked", lambda *_: (pop.popdown(), win.run("eyedropper:" + cmd)))
+        box.pack_start(eb, False, False, 0)
+        box.show_all()
+        pop.add(box)
         return pop
     return make
 
@@ -567,9 +576,14 @@ def build_ribbon(win):
                           B.big("Photo Album", "insertgraphic", "photo-album", "A")])
     B.group(t, "Illustrations", [MenuButton(r, "Shapes", "r-shapes", lambda: shapes_gallery(win), size="large", keytip="SH"),
                                  B.big("Icons", "insert-icons", "insert-icons", "Y"),
+                                 B.big("3D Models", "r-shapes", None, "3", menu=[("This Device...", "insert-model")]),
                                  B.big("SmartArt", "r-smartart", "insert-smartart", "M"),
                                  B.big("Chart", "r-chart-column-sm", "insert-chart", "C")])
-    B.group(t, "Links", [B.big("Link", "r-link", "insert-link", "I", tip="Link (Ctrl+K)")])
+    B.group(t, "Links", [B.big("Zoom", "r-zoom", None, "Z", menu=[("Summary Zoom...", "insert-zoom:summary"),
+                                                                 ("Section Zoom", "insert-zoom:section"),
+                                                                 ("Slide Zoom...", "insert-zoom:slide")]),
+                         B.big("Link", "r-link", "insert-link", "I", tip="Link (Ctrl+K)"),
+                         B.big("Action", "r-link", "action-settings", "K", tip="Action: what clicking or pointing at this object does")])
     B.group(t, "Comments", [B.big("Comment", "r-new-comment", "new-comment", "L")])
     B.group(t, "Text", [B.big("Text Box", "r-text-box", "draw-textbox", "X"),
                         [B.small("Header & Footer", "r-header-footer", "header-footer", "H"),
@@ -580,6 +594,7 @@ def build_ribbon(win):
                          B.small("Object", "insertobject", "insert-object", "J")]])
     B.group(t, "Symbols", [B.big("Equation", "r-equation", "insert-equation", "E"),
                            B.big("Symbol", "r-symbol", "insert-symbol", "U")])
+    B.group(t, "Camera", [B.big("Cameo", "insertvideo", "insert-cameo", "CA", tip="Cameo: your camera, live on the slide during the show")])
     B.group(t, "Media", [B.big("Video", "insertvideo", None, "V", menu=[("This Device...", "insert-video")]),
                          B.big("Audio", "insertsound", None, "O", menu=[("Audio on My PC...", "insert-audio"), ("Record Audio...", "record-audio")]),
                          B.big("Screen Recording", "r-screenshot", "screen-recording", "R")])
@@ -696,6 +711,8 @@ def build_ribbon(win):
                             [B.small("Previous", "previousannotation", "prev-comment", "V"),
                              B.small("Next", "nextannotation", "next-comment", "N")],
                             B.big("Show Comments", "showannotations", "show-comments", "H")])
+    B.group(t, "Compare", [B.big("Compare", "r-check-accessibility", "compare", "CP",
+                                 tip="Compare: merge another version of this presentation and review its changes")])
     r.add_tab(t)
 
     # ================================================================ View
@@ -739,7 +756,11 @@ def build_ribbon(win):
     # ================================================================ Shape Format (contextual)
     t = r.building(Tab("Shape Format", "JD", contextual=True))
     B.group(t, "Insert Shapes", [MenuButton(r, "Shapes", "r-shapes", lambda: shapes_gallery(win), size="large", keytip="SH"),
-                                 B.big("Text Box", "r-text-box", "draw-textbox", "X")])
+                                 B.big("Text Box", "r-text-box", "draw-textbox", "X"),
+                                 B.big("Merge Shapes", "r-group-sm", None, "M",
+                                       menu=[("Union", "merge-shapes:union"), ("Combine", "merge-shapes:combine"),
+                                             ("Fragment", "merge-shapes:fragment"), ("Intersect", "merge-shapes:intersect"),
+                                             ("Subtract", "merge-shapes:subtract")])])
     B.group(t, "Shape Styles", [[SplitButton(r, "Shape Fill", "r-shape-fill-sm", "shape-fill-last", color_menu(win, "shape-fill", "No Fill"),
                                              size="small", keytip="SF", tooltip="Shape Fill"),
                                  SplitButton(r, "Shape Outline", "r-shape-outline-sm", "shape-outline-last",
@@ -789,6 +810,19 @@ def build_ribbon(win):
     r.add_tab(t)
 
     # ================================================================ Picture Format (contextual)
+    t = r.building(Tab("3D Model", "J3", contextual=True))
+    B.group(t, "3D Model Views", [B.big(lab, "r-shapes", "model-view:" + v, "V%d" % k)
+                                  for k, (lab, v) in enumerate([("Front", "front"), ("Back", "back"), ("Left", "left"), ("Right", "right"),
+                                                                ("Top", "top"), ("Bottom", "bottom"),
+                                                                ("Above Front Left", "above-front-left"),
+                                                                ("Above Front Right", "above-front-right")])])
+    B.group(t, "Turn", [[B.small("Turn Left 15°", "r-rotate-sm", "model-turn:0,-15,0", "TL"),
+                         B.small("Turn Right 15°", "r-rotate-sm", "model-turn:0,15,0", "TR")],
+                        [B.small("Tilt Up 15°", "r-rotate-sm", "model-turn:-15,0,0", "TU"),
+                         B.small("Tilt Down 15°", "r-rotate-sm", "model-turn:15,0,0", "TD")],
+                        [B.small("Reset 3D Model", "r-rotate-sm", "model-view:above-front-left", "RS")]])
+    r.add_tab(t)
+
     t = r.building(Tab("Picture Format", "JP", contextual=True))
     B.group(t, "Adjust", [B.big("Change Picture", "r-pictures", "change-picture", "CP"),
                           B.big("Reset Picture", "resetattributes", "picture-reset", "Q",
