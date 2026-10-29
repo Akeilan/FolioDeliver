@@ -35,7 +35,7 @@ impl Deck {
         }
     }
 
-    fn link_rel(&mut self, part: &str, target: &str) -> Result<(String, String), String> {
+    pub(crate) fn link_rel(&mut self, part: &str, target: &str) -> Result<(String, String), String> {
         Ok(if target.is_empty() {
             (String::new(), String::new())
         } else if let Some(k) = target.strip_prefix("slide:") {

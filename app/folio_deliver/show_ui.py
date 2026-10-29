@@ -213,6 +213,7 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
         proc.stdin.write(bytes(out.get_data()))
     frames = 0
     prev = None
+    prev_i = None
     try:
         for k, i in enumerate(order):
             if progress:
@@ -228,7 +229,13 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
                 for f in range(n):
                     tmp = cairo.ImageSurface(cairo.FORMAT_ARGB32, rw, rh)
                     cr = cairo.Context(tmp)
-                    blend(cr, prev, cur0, kind, opt, f / n, rw, rh)
+                    if kind == "morph":
+                        if f == 0:
+                            from .morph import Morph
+                            mo = Morph(deck, prev_i, i, rw, rh)
+                        mo.draw_frame(cr, f / n)
+                    else:
+                        blend(cr, prev, cur0, kind, opt, f / n, rw, rh)
                     emit(tmp)
                     frames += 1
                 t_used += dur
@@ -245,6 +252,7 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
                 emit(last)
                 frames += 1
             prev = last
+            prev_i = i
     finally:
         proc.stdin.close()
         rc = proc.wait()

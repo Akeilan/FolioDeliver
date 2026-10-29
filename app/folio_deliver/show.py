@@ -544,7 +544,11 @@ class ShowWindow(Gtk.Window):
                 key = (a_i, b_i, w, h)
                 if getattr(self, "_tr_key", None) != key:
                     self._tr_key = key
-                    self._tr = (frame_surface(st, a_i, w, h), frame_surface(st, b_i, w, h))
+                    if kind == "morph":
+                        from .morph import Morph
+                        self._tr = (Morph(st.deck, a_i, b_i, w, h), None)
+                    else:
+                        self._tr = (frame_surface(st, a_i, w, h), frame_surface(st, b_i, w, h))
                 blend(cr, self._tr[0], self._tr[1], kind, opt, t, w, h)
                 GLib.timeout_add(14, lambda: (self.area.queue_draw(), False)[1])
                 return
@@ -1066,6 +1070,11 @@ def blend(cr, a, b, kind, opt, t, w, h, seed=7):
         else:
             paint(a)
             paint(b, alpha=e)
+    elif kind == "cut":
+        if opt == "thruBlk" and t < 0.5:
+            paint(None)
+        else:
+            paint(b)
     elif kind == "push":
         dx, dy = vec[0] * w * e, vec[1] * h * e
         paint(a, dx, dy)
@@ -1132,7 +1141,20 @@ def blend(cr, a, b, kind, opt, t, w, h, seed=7):
         import math
         paint(a)
         cr.save()
-        cr.arc(w / 2, h / 2, e * math.hypot(w, h) / 2 + 1, 0, 2 * math.pi)
+        r = e * math.hypot(w, h) / 2 + 1
+        if opt == "diamond":
+            r *= 1.42
+            cr.move_to(w / 2, h / 2 - r)
+            cr.line_to(w / 2 + r, h / 2)
+            cr.line_to(w / 2, h / 2 + r)
+            cr.line_to(w / 2 - r, h / 2)
+            cr.close_path()
+        elif opt == "plus":
+            cr.rectangle(w / 2 - r, h / 2 - r / 3, 2 * r, 2 * r / 3)
+            cr.rectangle(w / 2 - r / 3, h / 2 - r, 2 * r / 3, 2 * r)
+            cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+        else:
+            cr.arc(w / 2, h / 2, r, 0, 2 * math.pi)
         cr.clip()
         paint(b)
         cr.restore()
@@ -1145,9 +1167,366 @@ def blend(cr, a, b, kind, opt, t, w, h, seed=7):
         cr.translate(-w / 2, -h / 2)
         paint(b, alpha=e)
         cr.restore()
-    else:
+    elif kind == "morph" and hasattr(a, "draw_frame"):
+        a.draw_frame(cr, t)
+    elif not _blend_more(cr, a, b, kind, opt, t, e, w, h, paint, seed):
         paint(b)
     cr.restore()
+
+
+def _blend_more(cr, a, b, kind, opt, t, e, w, h, paint, seed):
+    """The transitions PowerPoint added after 2007, drawn flat: True when `kind` is one."""
+    import random
+    inv = -1.0 if opt in ("invX", "r") else 1.0
+
+    def scaled(s, sx, sy, cx, cy, alpha=1.0):
+        cr.save()
+        cr.translate(cx, cy)
+        cr.scale(max(sx, 0.001), max(sy, 0.001))
+        cr.translate(-cx, -cy)
+        paint(s, alpha=alpha)
+        cr.restore()
+
+    def clip_paint(s, shapes, alpha=1.0):
+        cr.save()
+        for sh in shapes:
+            sh()
+        cr.clip()
+        paint(s, alpha=alpha)
+        cr.restore()
+    if kind == "morph":                      # Morph without its objects (preview of nothing): a fade
+        paint(a)
+        paint(b, alpha=e)
+    elif kind == "reveal":
+        if opt == "thruBlk":
+            paint(None)
+            if t < 0.5:
+                paint(a, -w * 0.15 * e, 0, alpha=1 - t * 2)
+            else:
+                paint(b, w * 0.15 * (1 - e), 0, alpha=(t - 0.5) * 2)
+        else:
+            paint(b)
+            paint(a, -w * 0.3 * e * inv, 0, alpha=1 - e)
+    elif kind == "flash":
+        if t < 0.5:
+            paint(a)
+            cr.set_source_rgba(1, 1, 1, min(1.0, t * 2))
+            cr.paint()
+        else:
+            paint(b)
+            cr.set_source_rgba(1, 1, 1, max(0.0, 1 - (t - 0.5) * 2))
+            cr.paint()
+    elif kind in ("fallOver", "prestige"):
+        paint(b)
+        # the old slide tips over from its bottom edge (fall over) or drops away (prestige)
+        if kind == "fallOver":
+            scaled(a, 1.0, 1 - e, w / 2, h, alpha=1 - e * 0.6)
+        else:
+            scaled(a, 1 - 0.4 * e, 1 - 0.4 * e, w / 2, h * (0.5 + 0.5 * e), alpha=1 - e)
+    elif kind in ("drape", "curtains"):
+        paint(b)
+        if kind == "curtains":
+            for side in (0, 1):
+                cr.save()
+                cr.rectangle(0 if side == 0 else w / 2, 0, w / 2, h)
+                cr.clip()
+                cx = 0 if side == 0 else w
+                scaled(a, 1 - e, 1, cx, h / 2)
+                cr.restore()
+        else:
+            n = 8
+            for k in range(n):
+                cr.save()
+                x0 = w * k / n
+                cr.rectangle(x0, 0, w / n + 1, h)
+                cr.clip()
+                lag = (k / n) if inv > 0 else (1 - k / n)
+                f = max(0.0, min(1.0, (t * 1.6 - lag * 0.6)))
+                paint(a, 0, -h * f * f)
+                cr.restore()
+    elif kind == "wind":
+        paint(b, alpha=min(1.0, e * 1.5))
+        n = 12
+        rnd = random.Random(seed)
+        for k in range(n):
+            cr.save()
+            cr.rectangle(0, h * k / n, w, h / n + 1)
+            cr.clip()
+            d = e * (1 + rnd.random() * 0.6) * w * inv
+            paint(a, d, 0, alpha=max(0.0, 1 - e * 1.2))
+            cr.restore()
+    elif kind in ("fracture", "crush", "shred", "vortex", "honeycomb", "glitter"):
+        rnd = random.Random(seed)
+        if kind in ("honeycomb", "glitter"):
+            # the new slide arrives in cells (hexagons or diamonds) at random
+            paint(a)
+            size = w / (14 if kind == "honeycomb" else 26)
+            cells = []
+            ry = size * (0.87 if kind == "honeycomb" else 1.0)
+            r = 0
+            y = 0.0
+            while y < h + size:
+                x = (size / 2 if r % 2 else 0.0)
+                while x < w + size:
+                    cells.append((x, y))
+                    x += size
+                y += ry
+                r += 1
+            rnd.shuffle(cells)
+            k = int(len(cells) * e)
+            cr.save()
+            import math as _m
+            for cx, cy in cells[:k]:
+                sides = 6 if kind == "honeycomb" else 4
+                rad = size * (0.58 if sides == 6 else 0.75)
+                for j in range(sides):
+                    ang = _m.pi / 2 + 2 * _m.pi * j / sides
+                    px, py = cx + rad * _m.cos(ang), cy + rad * _m.sin(ang)
+                    cr.move_to(px, py) if j == 0 else cr.line_to(px, py)
+                cr.close_path()
+            cr.clip()
+            paint(b)
+            cr.restore()
+        elif kind == "crush":
+            paint(b)
+            scaled(a, 1 - e, 1 - e * 0.8, w / 2, h / 2, alpha=1 - e * e)
+        else:
+            # the old slide breaks into pieces that fly away (fracture, vortex) or strips (shred)
+            paint(b)
+            cols, rows = (10, 1) if (kind == "shred" and opt != "rectangle") else (8, 6)
+            for c in range(cols):
+                for r in range(rows):
+                    x0, y0 = w * c / cols, h * r / rows
+                    cw, chh = w / cols + 1, h / rows + 1
+                    cr.save()
+                    if kind == "vortex":
+                        import math as _m
+                        ang = e * (2 + rnd.random() * 3)
+                        cx, cy = x0 + cw / 2, y0 + chh / 2
+                        dist = e * e * w * (0.5 + rnd.random())
+                        cr.translate(cx - dist * inv, cy - dist * 0.2)
+                        cr.rotate(ang * inv)
+                        cr.scale(1 - e * 0.7, 1 - e * 0.7)
+                        cr.translate(-cx, -cy)
+                    elif kind == "shred":
+                        dy = (e * h * 1.1) * (1 if c % 2 else -1)
+                        cr.translate(0, dy)
+                    else:
+                        import math as _m
+                        dx, dy = (rnd.random() - 0.5) * w * e * 1.5, (rnd.random() - 0.3) * h * e * 1.5
+                        cr.translate(dx, dy)
+                        cx, cy = x0 + cw / 2, y0 + chh / 2
+                        cr.translate(cx, cy)
+                        cr.rotate((rnd.random() - 0.5) * 3 * e)
+                        cr.translate(-cx, -cy)
+                    cr.rectangle(x0, y0, cw, chh)
+                    cr.clip()
+                    paint(a, alpha=max(0.0, 1 - e * 1.1))
+                    cr.restore()
+    elif kind == "peelOff":
+        paint(b)
+        # the old slide peels away from its bottom corner along a moving diagonal
+        c = (w + h) * (1 - e)
+        big = 10 * (w + h)
+        cr.save()
+        if inv < 0:
+            cr.translate(w, 0)
+            cr.scale(-1, 1)
+        cr.move_to(-big, -big)
+        cr.line_to(c + big, -big)
+        cr.line_to(-big, c + big)
+        cr.close_path()
+        if inv < 0:
+            cr.scale(-1, 1)
+            cr.translate(-w, 0)
+        cr.clip()
+        paint(a)
+        cr.restore()
+    elif kind in ("pageCurlDouble", "pageCurlSingle", "airplane", "origami"):
+        paint(b)
+        if kind == "airplane":
+            cr.save()
+            cx, cy = w / 2, h / 2
+            cr.translate(cx + e * w * 0.9 * inv, cy - e * h * 0.6)
+            cr.rotate(-0.4 * e * inv)
+            cr.scale(1 - e * 0.85, 1 - e * 0.85)
+            cr.translate(-cx, -cy)
+            paint(a, alpha=1 - e * 0.5)
+            cr.restore()
+        elif kind == "origami":
+            # folded in half, then in half again
+            k = e * 2
+            if k < 1:
+                scaled(a, 1 - k * 0.5, 1, 0 if inv > 0 else w, h / 2)
+            else:
+                cr.save()
+                cr.rectangle(0 if inv > 0 else w / 2, 0, w / 2, h)
+                cr.clip()
+                scaled(a, 0.5, 1 - (k - 1), w / 2, h / 2, alpha=1 - (k - 1) * 0.5)
+                cr.restore()
+        else:
+            halves = 2 if kind == "pageCurlDouble" else 1
+            for side in range(halves):
+                cr.save()
+                x0 = 0 if (halves == 1 or side == 0) else w / 2
+                cw = w if halves == 1 else w / 2
+                cr.rectangle(x0, 0, cw, h)
+                cr.clip()
+                edge = x0 if (side == 0) else x0 + cw
+                scaled(a, 1 - e, 1, edge, h / 2)
+                cr.restore()
+    elif kind in ("checker", "blinds", "comb"):
+        paint(a)
+        cr.save()
+        if kind == "checker":
+            cols, rows = 10, 8
+            vert = opt == "vert"
+            for c in range(cols):
+                for r in range(rows):
+                    lag = (r if vert else c) / (rows if vert else cols) * 0.5 + (0.25 if (r + c) % 2 else 0)
+                    f = max(0.0, min(1.0, (t - lag) / 0.25))
+                    cw, chh = w / cols, h / rows
+                    if vert:
+                        cr.rectangle(c * cw, r * chh, cw + 1, chh * f + 1)
+                    else:
+                        cr.rectangle(c * cw, r * chh, cw * f + 1, chh + 1)
+        elif kind == "blinds":
+            n = 8
+            for k in range(n):
+                if opt == "vert":
+                    cr.rectangle(w * k / n, 0, w / n * e + 1, h)
+                else:
+                    cr.rectangle(0, h * k / n, w, h / n * e + 1)
+        else:
+            n = 10
+            for k in range(n):
+                if opt == "vert":
+                    yy = 0 if k % 2 == 0 else h * (1 - e)
+                    cr.rectangle(w * k / n, yy, w / n + 1, h * e)
+                else:
+                    xx = 0 if k % 2 == 0 else w * (1 - e)
+                    cr.rectangle(xx, h * k / n, w * e, h / n + 1)
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "wheel":
+        import math as _m
+        paint(a)
+        cr.save()
+        cx, cy, r = w / 2, h / 2, _m.hypot(w, h)
+        start = -_m.pi / 2
+        cr.move_to(cx, cy)
+        if opt == "wedge":
+            cr.arc(cx, cy, r, start - _m.pi * e, start + _m.pi * e)
+        else:
+            cr.arc(cx, cy, r, start, start + 2 * _m.pi * e)
+        cr.close_path()
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind == "wheelReverse":
+        import math as _m
+        paint(a)
+        cr.save()
+        cx, cy, r = w / 2, h / 2, _m.hypot(w, h)
+        cr.move_to(cx, cy)
+        cr.arc_negative(cx, cy, r, -_m.pi / 2, -_m.pi / 2 - 2 * _m.pi * e)
+        cr.close_path()
+        cr.clip()
+        paint(b)
+        cr.restore()
+    elif kind in ("ripple", "warp"):
+        import math as _m
+        paint(a)
+        cx, cy = {"lu": (0, 0), "ru": (w, 0), "ld": (0, h), "rd": (w, h)}.get(opt, (w / 2, h / 2))
+        r = e * _m.hypot(max(cx, w - cx), max(cy, h - cy)) + 1
+        cr.save()
+        cr.arc(cx, cy, r, 0, 2 * _m.pi)
+        cr.clip()
+        scaled(b, 1.02 - 0.02 * e, 1.02 - 0.02 * e, cx, cy)
+        cr.restore()
+        cr.set_source_rgba(1, 1, 1, 0.25 * (1 - e))
+        cr.set_line_width(max(2.0, w / 80))
+        cr.arc(cx, cy, r, 0, 2 * _m.pi)
+        cr.stroke()
+    elif kind in ("switch", "flip", "cube", "box", "rotate", "orbit", "ferris", "gallery", "conveyor", "pan", "doors", "window",
+                  "flythrough", "random"):
+        if kind == "random":
+            choices = ["fade", "push", "wipe", "split", "cover", "pull", "dissolve", "circle", "randomBar", "zoom"]
+            k = random.Random(seed).choice(choices)
+            cr.restore()
+            cr.save()
+            blend(cr, a, b, k, "", t, w, h, seed)
+            return True
+        d = {"l": -1.0, "r": 1.0, "u": -1.0, "d": 1.0}.get(opt or "", -1.0)
+        vertical = opt in ("u", "d")
+        if kind in ("switch", "flip"):
+            # the old slide turns away to one side, the new one turns in
+            if t < 0.5:
+                paint(None)
+                k = 1 - e * 2 if kind == "flip" else 1 - e
+                scaled(a, max(0.02, k), 1 - 0.1 * e, w / 2 + d * w * 0.25 * e, h / 2)
+            else:
+                paint(None)
+                k = (e - 0.5) * 2 if kind == "flip" else e
+                scaled(b, max(0.02, k), 0.9 + 0.1 * e, w / 2 - d * w * 0.25 * (1 - e), h / 2)
+        elif kind in ("cube", "box", "rotate", "orbit"):
+            paint(None)
+            if vertical:
+                scaled(a, 1, 1 - e, w / 2, h if d < 0 else 0, alpha=1 - e * 0.5)
+                scaled(b, 1, e, w / 2, 0 if d < 0 else h)
+            else:
+                if kind in ("box", "orbit"):
+                    scaled(a, 1 - e * 0.3, 1 - e * 0.3, w / 2, h / 2, alpha=1 - e)
+                    scaled(b, 0.7 + 0.3 * e, 0.7 + 0.3 * e, w / 2 + (1 - e) * w * 0.3 * -d, h / 2, alpha=e)
+                else:
+                    scaled(a, 1 - e, 1, w if d < 0 else 0, h / 2, alpha=1 - e * 0.5)
+                    scaled(b, e, 1, 0 if d < 0 else w, h / 2)
+        elif kind in ("ferris", "gallery", "conveyor", "pan"):
+            paint(None)
+            if kind == "pan":
+                dy = (h if opt in ("u", "") else -h) if opt not in ("l", "r") else 0
+                dx = (w if opt == "l" else -w) if opt in ("l", "r") else 0
+                paint(a, -dx * e, -dy * e)
+                paint(b, dx * (1 - e), dy * (1 - e))
+            else:
+                k = 0.75 if kind != "ferris" else 0.6
+                lift = -h * 0.15 * _m_sin(e) if kind == "ferris" else 0
+                cr.save()
+                cr.translate(0, lift)
+                scaled(a, k + (1 - k) * (1 - e), k + (1 - k) * (1 - e), w / 2 + d * w * e, h / 2)
+                scaled(b, k + (1 - k) * e, k + (1 - k) * e, w / 2 - d * w * (1 - e), h / 2)
+                cr.restore()
+        elif kind in ("doors", "window"):
+            paint(b)
+            if kind == "window":
+                scaled(b, 0.8 + 0.2 * e, 0.8 + 0.2 * e, w / 2, h / 2)
+            for side in (0, 1):
+                cr.save()
+                if opt == "horz":
+                    cr.rectangle(0, 0 if side == 0 else h / 2, w, h / 2)
+                    cr.clip()
+                    scaled(a, 1, 1 - e, w / 2, 0 if side == 0 else h)
+                else:
+                    cr.rectangle(0 if side == 0 else w / 2, 0, w / 2, h)
+                    cr.clip()
+                    scaled(a, 1 - e, 1, 0 if side == 0 else w, h / 2)
+                cr.restore()
+        else:   # fly through
+            if opt == "out":
+                paint(b)
+                scaled(a, 1 + 2 * e, 1 + 2 * e, w / 2, h / 2, alpha=1 - e)
+            else:
+                scaled(a, 1 + e, 1 + e, w / 2, h / 2, alpha=1 - e)
+                scaled(b, 0.3 + 0.7 * e, 0.3 + 0.7 * e, w / 2, h / 2, alpha=e)
+    else:
+        return False
+    return True
+
+
+def _m_sin(x):
+    import math
+    return math.sin(x * math.pi)
 
 
 def frame_surface(st, i, w, h):
@@ -1168,8 +1547,12 @@ def preview_in(win, prev, i, kind, opt, dur):
     if w < 2 or h < 2:
         return
     st = ShowState(win, i, hidden_too=True)
-    a = frame_surface(st, prev, w, h) if prev is not None else None
-    b = frame_surface(st, i, w, h)
+    if kind == "morph":
+        from .morph import Morph
+        a, b = Morph(win.deck, prev, i, w, h), None
+    else:
+        a = frame_surface(st, prev, w, h) if prev is not None else None
+        b = frame_surface(st, i, w, h)
     start = time.time()
     dur = max(0.2, dur or 0.75)
     c.preview = None

@@ -554,8 +554,38 @@ impl Deck {
         let after = d.attr(tr, "advTm").and_then(|v| v.parse::<f64>().ok()).map(|v| v / 1000.0).unwrap_or(-1.0);
         let (kind, opt) = d.elements(tr).find(|&c| !d.name(c).ends_with("sndAc") && d.name(c) != "p:extLst")
             .map(|c| {
-                let name = d.name(c).split(':').next_back().unwrap_or("").to_string();
-                let opt = d.attr(c, "dir").or_else(|| d.attr(c, "orient")).or_else(|| d.attr(c, "thruBlk")).unwrap_or("").to_string();
+                let mut name = d.name(c).split(':').next_back().unwrap_or("").to_string();
+                let mut opt = d.attr(c, "dir").or_else(|| d.attr(c, "orient")).or_else(|| d.attr(c, "thruBlk")).unwrap_or("").to_string();
+                match name.as_str() {
+                    // Office 2013's preset transitions are one element with a preset name
+                    "prstTrans" => {
+                        name = d.attr(c, "prst").unwrap_or("fallOver").to_string();
+                        if d.attr(c, "invX").is_some_and(|v| v == "1" || v == "true") {
+                            opt = "invX".into();
+                        }
+                    }
+                    "morph" => opt = d.attr(c, "option").unwrap_or("byObject").to_string(),
+                    "prism" => {
+                        let content = d.attr(c, "isContent").is_some_and(|v| v == "1" || v == "true");
+                        let inv = d.attr(c, "isInverted").is_some_and(|v| v == "1" || v == "true");
+                        name = match (content, inv) { (false, false) => "cube", (false, true) => "box", (true, false) => "rotate", (true, true) => "orbit" }.into();
+                    }
+                    "wheel" if d.attr(c, "spokes").is_some_and(|v| v != "1") => {
+                        opt = d.attr(c, "spokes").unwrap_or("1").to_string();
+                    }
+                    "circle" | "diamond" | "plus" => {
+                        opt = name.clone();
+                        name = "circle".into();
+                    }
+                    "shred" => opt = d.attr(c, "pattern").unwrap_or("strip").to_string(),
+                    "split" => opt = d.attr(c, "orient").unwrap_or("horz").to_string(),
+                    "wedge" => {
+                        name = "wheel".into();
+                        opt = "wedge".into();
+                    }
+                    "reveal" | "cut" | "fade" if d.attr(c, "thruBlk").is_some_and(|v| v == "1" || v == "true") => opt = "thruBlk".into(),
+                    _ => {}
+                }
                 (name, opt)
             })
             .unwrap_or(("cut".into(), String::new()));
@@ -588,17 +618,27 @@ impl Deck {
             if after >= 0.0 {
                 attrs.push_str(&format!(r#" advTm="{}""#, (after * 1000.0).round() as i64));
             }
-            let child = match kind {
-                "none" => String::new(),
-                "push" | "wipe" | "cover" | "pull" => format!(r#"<p:{kind} dir="{}"/>"#, if opt.is_empty() { if kind == "wipe" { "d" } else { "u" } } else { opt }),
-                "split" => format!(r#"<p:split orient="{}" dir="out"/>"#, if opt.is_empty() { "horz" } else { opt }),
-                "randomBar" | "blinds" | "checker" | "comb" => format!(r#"<p:{kind} dir="{}"/>"#, if opt.is_empty() { "horz" } else { opt }),
-                "fade" => if opt == "thruBlk" { r#"<p:fade thruBlk="1"/>"#.to_string() } else { "<p:fade/>".to_string() },
-                k => format!("<p:{k}/>"),
+            // Office 2010 and later transitions live in alternate content with a fade behind them
+            let ms = (dur * 1000.0).round() as i64;
+            let later = later_transition(kind, opt);
+            if let Some((req, ns, inner)) = later {
+                let xml = format!(
+                    r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="{P14}" {ns} Requires="{req}"><p:transition{attrs} p14:dur="{ms}">{inner}</p:transition></mc:Choice><mc:Fallback><p:transition{attrs}><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>"#);
+                let el = fragment(d, &xml).ok_or("bad transition")?;
+                let at = d.elements(root).position(|c| matches!(d.name(c), "p:timing" | "p:extLst"))
+                    .map(|k| d.index_in_parent(d.elements(root).nth(k).unwrap()).unwrap())
+                    .unwrap_or(d.children(root).len());
+                d.insert(root, at, el);
+                continue;
+            }
+            let child = base_transition(kind, opt);
+            let xml = if kind != "none" {
+                // as PowerPoint 2010 and later write it: the exact duration for readers that know p14
+                format!(r#"<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="{P14}" Requires="p14"><p:transition{attrs} p14:dur="{ms}">{child}</p:transition></mc:Choice><mc:Fallback><p:transition{attrs}>{child}</p:transition></mc:Fallback></mc:AlternateContent>"#)
+            } else {
+                format!("<p:transition{attrs}>{child}</p:transition>")
             };
-            let xml = format!("<p:transition{attrs}>{child}</p:transition>");
             let el = fragment(d, &xml).ok_or("bad transition")?;
-            // after cSld / clrMapOvr, before timing and extLst
             let at = d.elements(root).position(|c| matches!(d.name(c), "p:timing" | "p:extLst"))
                 .map(|k| d.index_in_parent(d.elements(root).nth(k).unwrap()).unwrap())
                 .unwrap_or(d.children(root).len());
@@ -607,7 +647,31 @@ impl Deck {
         self.commit();
         Ok(())
     }
+}
 
+fn base_transition(kind: &str, opt: &str) -> String {
+    {
+        {
+            match kind {
+                "none" => String::new(),
+                "circle" if matches!(opt, "diamond" | "plus") => format!("<p:{opt}/>"),
+                "circle" => "<p:circle/>".to_string(),
+                "wheel" if opt == "wedge" => "<p:wedge/>".to_string(),
+                "wheel" => format!(r#"<p:wheel spokes="{}"/>"#, if opt.is_empty() { "1" } else { opt }),
+                "cut" if opt == "thruBlk" => r#"<p:cut thruBlk="1"/>"#.to_string(),
+                "wedge" | "newsflash" | "random" | "dissolve" | "cut" | "zoom" => format!("<p:{kind}/>"),
+                "strips" => format!(r#"<p:strips dir="{}"/>"#, if opt.is_empty() { "ru" } else { opt }),
+                "push" | "wipe" | "cover" | "pull" => format!(r#"<p:{kind} dir="{}"/>"#, if opt.is_empty() { if kind == "wipe" { "d" } else { "u" } } else { opt }),
+                "split" => format!(r#"<p:split orient="{}" dir="out"/>"#, if opt.is_empty() { "horz" } else { opt }),
+                "randomBar" | "blinds" | "checker" | "comb" => format!(r#"<p:{kind} dir="{}"/>"#, if opt.is_empty() { "horz" } else { opt }),
+                "fade" => if opt == "thruBlk" { r#"<p:fade thruBlk="1"/>"#.to_string() } else { "<p:fade/>".to_string() },
+                k => format!("<p:{k}/>"),
+            }
+        }
+    }
+}
+
+impl Deck {
     // ------------------------------------------------------------ theme
     /// The theme's colours (dk1 lt1 dk2 lt2 accent1..6 hlink folHlink) and fonts (major, minor).
     pub fn theme_info(&mut self) -> (Vec<(String, u32)>, String, String) {
@@ -719,5 +783,42 @@ impl Deck {
             at = start + n;
         }
         self.write_sections(&out, "Section")
+    }
+}
+
+const P15: &str = "http://schemas.microsoft.com/office/powerpoint/2012/main";
+const P159: &str = "http://schemas.microsoft.com/office/powerpoint/2015/09/main";
+
+/// The Office 2010 / 2013 / 2016 transitions: (Requires, namespace declaration, element).
+fn later_transition(kind: &str, opt: &str) -> Option<(&'static str, String, String)> {
+    let p14 = |el: &str| Some(("p14", String::new(), el.to_string()));
+    let dir = |d: &str| if opt.is_empty() { d.to_string() } else { opt.to_string() };
+    match kind {
+        "morph" => Some(("p159", format!(r#"xmlns:p159="{P159}""#),
+                         format!(r#"<p159:morph option="{}"/>"#, if opt.is_empty() { "byObject" } else { opt }))),
+        "fallOver" | "drape" | "curtains" | "wind" | "prestige" | "fracture" | "crush" | "peelOff"
+        | "pageCurlDouble" | "pageCurlSingle" | "airplane" | "origami" => {
+            let inv = if opt == "invX" { r#" invX="1""# } else { "" };
+            Some(("p15", format!(r#"xmlns:p15="{P15}""#), format!(r#"<p15:prstTrans prst="{kind}"{inv}/>"#)))
+        }
+        "vortex" | "ripple" | "glitter" | "pan" | "gallery" | "conveyor" | "flip" | "switch" | "ferris" | "window" | "doors" => {
+            let def = match kind { "vortex" | "flip" | "switch" | "ferris" | "gallery" | "conveyor" => "l", "ripple" => "center",
+                                   "glitter" => "l", "pan" => "u", "window" | "doors" => "vert", _ => "l" };
+            if kind == "glitter" {
+                return p14(&format!(r#"<p14:glitter dir="{}" pattern="diamond"/>"#, dir(def)));
+            }
+            p14(&format!(r#"<p14:{kind} dir="{}"/>"#, dir(def)))
+        }
+        "honeycomb" | "flash" | "wheelReverse" => p14(&format!("<p14:{kind}/>")),
+        "reveal" => p14(&format!(r#"<p14:reveal{} dir="{}"/>"#, if opt == "thruBlk" { r#" thruBlk="1""# } else { "" },
+                                 if opt.is_empty() || opt == "thruBlk" { "l" } else { opt })),
+        "shred" => p14(&format!(r#"<p14:shred pattern="{}" dir="in"/>"#, if opt.is_empty() { "strip" } else { opt })),
+        "warp" => p14(&format!(r#"<p14:warp dir="{}"/>"#, dir("in"))),
+        "flythrough" => p14(&format!(r#"<p14:flythrough dir="{}"/>"#, dir("in"))),
+        "cube" => p14(&format!(r#"<p14:prism dir="{}"/>"#, dir("l"))),
+        "box" => p14(&format!(r#"<p14:prism dir="{}" isInverted="1"/>"#, dir("l"))),
+        "rotate" => p14(&format!(r#"<p14:prism dir="{}" isContent="1"/>"#, dir("l"))),
+        "orbit" => p14(&format!(r#"<p14:prism dir="{}" isContent="1" isInverted="1"/>"#, dir("l"))),
+        _ => None,
     }
 }

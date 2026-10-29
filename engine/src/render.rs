@@ -109,6 +109,9 @@ pub struct Opts {
     pub edit: bool,
     /// a shape whose text is being edited is still drawn; this skips nothing
     pub hide: Option<u32>,
+    /// 0 everything, 1 the slide's own shapes only (no background, master or layout),
+    /// 2 the background with the master's and layout's shapes only (for Morph)
+    pub layers: u8,
 }
 
 pub struct Painter {
@@ -197,9 +200,14 @@ impl Painter {
         cr.rectangle(0.0, 0.0, w, h);
         cr.clip();
         // background: the slide's, the layout's or the master's
-        cr.set_source_rgb(1.0, 1.0, 1.0);
-        cr.paint().ok();
+        if opts.layers != 1 {
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.paint().ok();
+        }
         for (p, dom) in parts.iter().rev() {
+            if opts.layers == 1 {
+                break;
+            }
             if let Some(bg) = path(dom, dom.root, &["p:cSld", "p:bg"]) {
                 let fill = self.background(deck, &ctx, p, dom, bg);
                 cr.rectangle(0.0, 0.0, w, h);
@@ -217,6 +225,9 @@ impl Painter {
             let is_master = p.contains("slideMasters/") && !part.contains("slideMasters/");
             let is_layout = p.contains("slideLayouts/") && !part.contains("slideLayouts/");
             if (is_master && (!slide_shows || !layout_shows)) || (is_layout && !slide_shows) {
+                continue;
+            }
+            if (opts.layers == 1 && !is_slide) || (opts.layers == 2 && is_slide) {
                 continue;
             }
             let Some(tree) = path(dom, dom.root, &["p:cSld", "p:spTree"]) else { continue };
