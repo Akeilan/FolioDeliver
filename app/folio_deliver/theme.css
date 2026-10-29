@@ -452,3 +452,11 @@ tooltip, tooltip.background { background-color: #ffffff; color: #262626; border:
 tooltip label { color: #262626; }
 .folio-dialog list row:not(:selected) { background-color: transparent; background-image: none; }
 .folio-dialog list row:not(:selected):hover { background-color: #fff4ea; }
+/* X3-05: dialogs' own title bars (client-side, as on Wayland) in Folio's colours, not the desktop theme's */
+headerbar.default-decoration, .titlebar.default-decoration, messagedialog .titlebar, .folio-dialog headerbar, .folio-dialog .titlebar {
+  background-color: #f3f3f3; background-image: none; color: #262626; border-color: #c8c8c8; box-shadow: none; }
+headerbar.default-decoration label, .titlebar.default-decoration label, messagedialog .titlebar label,
+headerbar.default-decoration .title, .titlebar.default-decoration .title { color: #262626; }
+headerbar.default-decoration button.titlebutton, .titlebar.default-decoration button.titlebutton {
+  color: #262626; background-color: transparent; background-image: none; border-color: transparent; box-shadow: none; }
+headerbar.default-decoration button.titlebutton:hover, .titlebar.default-decoration button.titlebutton:hover { background-color: #e1e1e1; }
