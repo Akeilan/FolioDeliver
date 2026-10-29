@@ -762,6 +762,18 @@ class SlideCanvas(Gtk.Box):
     # ------------------------------------------------------------ mouse
     def on_press(self, area, ev):
         area.grab_focus()
+        if getattr(self, "eyedropper", None) is not None:
+            rgb = None
+            surf, _shapes = self._surface()
+            if surf is not None and ev.button == 1:
+                x, y = int(ev.x - round(self.ox)), int(ev.y - round(self.oy))
+                if 0 <= x < surf.get_width() and 0 <= y < surf.get_height():
+                    surf.flush()
+                    d = surf.get_data()
+                    o = y * surf.get_stride() + x * 4
+                    rgb = (d[o + 2], d[o + 1], d[o])
+            self.win.eyedropper_pick(rgb if ev.button == 1 else None)
+            return True
         if self.deck is None or self.index is None:
             if self.deck is not None and self.deck.slide_count() == 0 and ev.button == 1:
                 self.win.run("new-slide")
@@ -1424,6 +1436,9 @@ class SlideCanvas(Gtk.Box):
         ctrl = bool(ev.state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(ev.state & Gdk.ModifierType.SHIFT_MASK)
         alt = bool(ev.state & Gdk.ModifierType.MOD1_MASK)
+        if getattr(self, "eyedropper", None) is not None and name == "Escape":
+            self.win.eyedropper_cancel()
+            return True
         if self.drag is not None and name == "Escape":
             self.drag = None
             self.queue()

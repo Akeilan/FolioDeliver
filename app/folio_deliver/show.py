@@ -439,6 +439,7 @@ class ShowWindow(Gtk.Window):
         self._idle_cursor = None
         st.listeners.append(self.refresh)
         self.show_all()
+        GLib.idle_add(lambda: (self.start_cameos(), False)[1])
         if monitor is not None:
             geo = monitor.get_geometry()
             self.move(geo.x, geo.y)
@@ -468,10 +469,57 @@ class ShowWindow(Gtk.Window):
         if self.st.index != self._media_slide:
             self.stop_media()
             self._media_slide = self.st.index
+            self.start_cameos()
         self._set_cursor()
         self.area.queue_draw()
 
     # ------------------------------------------------------------ video and audio
+    def start_cameos(self):
+        """Cameo: the camera's live picture in each Cameo frame of the slide (P3-10)."""
+        st = self.st
+        if st.index is None or getattr(self, "presenter_only", False):
+            return
+        import glob
+        if not glob.glob("/dev/video*"):
+            return
+        from .b3_ui import is_cameo
+        from .media_ui import gst
+        Gst = gst()
+        if Gst is None:
+            return
+        for s in st.deck.shapes(st.index):
+            if not is_cameo(st.deck, st.index, s["id"]):
+                continue
+            try:
+                pipe = Gst.parse_launch("v4l2src ! videoconvert ! gtksink name=sink")
+                sink = pipe.get_by_name("sink")
+                w = sink.get_property("widget")
+            except Exception:
+                return
+            aw, ah = self.area.get_allocated_width(), self.area.get_allocated_height()
+            sw, sh = st.deck.size()
+            scale = min(aw / sw, ah / sh)
+            ox, oy = (aw - sw * scale) / 2, (ah - sh * scale) / 2
+            w.set_halign(Gtk.Align.START)
+            w.set_valign(Gtk.Align.START)
+            w.set_margin_start(int(ox + s["x"] * scale))
+            w.set_margin_top(int(oy + s["y"] * scale))
+            w.set_size_request(int(s["w"] * scale), int(s["h"] * scale))
+            self.overlay.add_overlay(w)
+            w.show()
+
+            class _Cam:
+                def __init__(self, pipe):
+                    self.pipe = pipe
+
+                def stop(self):
+                    self.pipe.set_state(Gst.State.NULL)
+
+                def toggle(self):
+                    pass
+            pipe.set_state(Gst.State.PLAYING)
+            self.media[("cameo", s["id"])] = (_Cam(pipe), w)
+
     def stop_media(self):
         for pl, w in list(self.media.values()):
             pl.stop()

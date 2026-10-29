@@ -21,6 +21,7 @@ from .smartart_ui import SmartArtCommands
 from .media_ui import MediaCommands
 from .ink_ui import InkCommands
 from .eq_ui import EquationCommands
+from .b3_ui import Backlog3Commands
 from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
@@ -40,7 +41,7 @@ MASTER_BLOCKED = {"new-slide", "new-slide-layout", "duplicate-slides", "delete-s
 SIZES = [8, 9, 10, 10.5, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 48, 54, 60, 66, 72, 80, 88, 96]
 
 
-class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtCommands, ChartCommands, ShowCommands, MasterCommands, PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
+class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaCommands, SmartArtCommands, ChartCommands, ShowCommands, MasterCommands, PictureCommands, ReviewCommands, AnimationCommands, MoreCommands, Gtk.ApplicationWindow):
     def __init__(self, app, path=None, twin=None):
         Gtk.ApplicationWindow.__init__(self, application=app)
         self.app = app
@@ -249,7 +250,18 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
                 self.path = None
                 self.untitled = os.path.splitext(os.path.basename(path))[0]
             else:
-                deck = Presentation.open(path)
+                self.password = None
+                pkg = self.open_encrypted(path) if ext in (".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm") else None
+                if pkg is not None:
+                    fd, tmp = tempfile.mkstemp(suffix=ext, prefix=".folio-")
+                    try:
+                        with os.fdopen(fd, "wb") as f:
+                            f.write(pkg)
+                        deck = Presentation.open(tmp)
+                    finally:
+                        os.remove(tmp)
+                else:
+                    deck = Presentation.open(path)
                 self.imported_from = None
                 if ext in (".potx", ".potm"):
                     # a template opens as a new presentation made from it
@@ -300,6 +312,25 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
         self.selection_changed()
         self._sync_transition()
         self.status.set_slide(self.current, self.deck.slide_count())
+        self.close_message_bar()
+        if getattr(self, "final_mode", False):
+            self.leave_final_ui()
+        GLib.idle_add(lambda: (self.after_open_checks(), False)[1])
+
+    def leave_final_ui(self):
+        self.final_mode = False
+        self.canvas.set_sensitive(True)
+        self.ribbon.set_sensitive(True)
+
+    def act_insert_zoom(self, kind="slide"):
+        return Backlog3Commands.act_insert_zoom(self, kind)
+
+    def act_model_turn(self, arg):
+        try:
+            rot = tuple(float(v) for v in arg.split(","))
+        except ValueError:
+            return None
+        return self.turn_model(rot)
 
     def doc_name(self):
         return os.path.basename(self.path) if self.path else (self.untitled or "Presentation1")
@@ -432,6 +463,13 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
         media = len(shapes) == 1 and shapes[0]["kind"] == "pic" and self.current is not None and \
             self.master_mode is None and self.deck.media_info(self.current, shapes[0]["id"]) is not None
         self.ribbon.show_contextual("Playback", bool(media))
+        try:
+            from .b3_ui import model_info
+            model = len(shapes) == 1 and shapes[0]["kind"] in ("pic", "graphicFrame") and \
+                model_info(self.deck, self.current, shapes[0]["id"]) is not None
+        except Exception:
+            model = False
+        self.ribbon.show_contextual("3D Model", model)
         if tables and len(shapes) == 1:
             for key in ("firstRow", "lastRow", "bandRow", "firstCol", "lastCol", "bandCol"):
                 self.ribbon.update("tbl-" + key, "true" if self.deck.table_option_value(self.current, shapes[0]["id"], key) else "false")
@@ -575,7 +613,12 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
     def save_to(self, path):
         self.canvas.leave_text()
         try:
-            self.deck.save(path)
+            if self.deck.pres_attr("embedTrueTypeFonts") in ("1", "true"):
+                self.embed_fonts_now()
+            if getattr(self, "password", None):
+                self.write_protected(path)
+            else:
+                self.deck.save(path)
         except Exception as e:
             self.dialogs.message("%s couldn't save '%s'.\n\n%s" % (APP_NAME, os.path.basename(path), e))
             return False
@@ -712,8 +755,6 @@ class DeliverWindow(EquationCommands, InkCommands, MediaCommands, SmartArtComman
             self.app.window_closed(self)
             self.destroy()
 
-    def act_options(self):
-        self.dialogs.info("Options will be available in a later version.", "Options")
 
     def confirm_close(self):
         self._save_notes()

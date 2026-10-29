@@ -294,6 +294,45 @@ class Backstage(Gtk.Box):
             grid.attach(Gtk.Label(label=k, xalign=0), 0, i, 1, 1)
             grid.attach(Gtk.Label(label=v, xalign=0), 1, i, 1, 1)
         box.pack_start(grid, False, False, 12)
+        # Protect Presentation and Compress Media, as the original's Info page has them
+        def card(title, text, label, items):
+            row = Gtk.Box(spacing=16)
+            mb = Gtk.MenuButton(label=label)
+            menu = Gtk.Menu()
+            for lab, cmd in items:
+                mi = Gtk.MenuItem(label=lab)
+                mi.connect("activate", lambda _m, c=cmd: (self.close(), w.run(c)))
+                menu.append(mi)
+            menu.show_all()
+            mb.set_popup(menu)
+            mb.set_valign(Gtk.Align.START)
+            mb.cmds = [c for _l, c in items]
+            row.pack_start(mb, False, False, 0)
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            t = Gtk.Label(xalign=0)
+            t.set_markup("<b>%s</b>" % title)
+            col.pack_start(t, False, False, 0)
+            d = Gtk.Label(label=text, xalign=0)
+            d.set_line_wrap(True)
+            col.pack_start(d, False, False, 0)
+            row.pack_start(col, True, True, 0)
+            box.pack_start(row, False, False, 6)
+            return mb
+        state = []
+        if getattr(w, "password", None):
+            state.append("A password is required to open this presentation.")
+        if w.is_final():
+            state.append("This presentation has been marked as final to discourage editing.")
+        if w.read_only_recommended():
+            state.append("This presentation is set to open as read-only.")
+        self.protect_button = card("Protect Presentation", " ".join(state) or "Control what types of changes people can make to this presentation.",
+                                   "Protect Presentation", [("Always Open Read-Only", "protect:readonly"),
+                                                            ("Encrypt with Password", "protect:password"),
+                                                            ("Mark as Final", "protect:final")])
+        media = sum(sz for _p, sz in w.deck.media_parts())
+        self.compress_button = card("Media Size and Performance", "Media files in this presentation take %.1f MB." % (media / 1e6),
+                                    "Compress Media", [("Full HD (1080p)", "compress-media:full"), ("HD (720p)", "compress-media:hd"),
+                                                       ("Standard (480p)", "compress-media:standard")])
         return box
 
     def page_saveas(self):
