@@ -322,8 +322,8 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         self.canvas.set_sensitive(True)
         self.ribbon.set_sensitive(True)
 
-    def act_insert_zoom(self, kind="slide"):
-        return Backlog3Commands.act_insert_zoom(self, kind)
+    def act_insert_zoom(self, kind="slide", slides=None):
+        return Backlog3Commands.act_insert_zoom(self, kind, slides)
 
     def act_model_turn(self, arg):
         try:

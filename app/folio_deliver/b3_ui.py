@@ -561,9 +561,9 @@ class Backlog3Commands:
                     [(self._slide_title(p + 1) or "Section %d" % (k + 1), p + 1) for k, p in enumerate(picks)]
                 deck.write_sections(secs, "Summary Zoom")
                 steps += 1
-                for sh in deck.shapes(summary):
-                    if sh.get("ph") in ("title", "ctrTitle"):
-                        deck.set_text(summary, sh["id"], "Summary")
+                for shp in deck.shapes(summary):
+                    if shp.get("ph") in ("title", "ctrTitle"):
+                        deck.set_text(summary, shp["id"], "Summary")
                         steps += 1
                         break
                 ids, sections = _pres(deck)
@@ -858,7 +858,7 @@ class Backlog3Commands:
             ext = os.path.splitext(part)[1].lower()
             data = bytes(self.deck.part_bytes(part) or b"")
             new = None
-            if ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif") and size > 150000:
+            if ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".gif"):
                 new = self._shrink_picture(data, ext, lines * 2)
             elif ext in (".mp4", ".m4v", ".mov", ".avi", ".wmv", ".mkv", ".webm") and ff:
                 new = self._transcode(ff, data, ext, ["-vf", "scale=-2:'min(%d,ih)'" % lines, "-c:v", "libx264", "-preset", "veryfast",
