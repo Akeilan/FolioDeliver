@@ -141,6 +141,20 @@ check(z.read(ef[0][2]) == b"EOTDATA1" and b"embeddedFontLst" in z.read("ppt/pres
 r.set_embedded_fonts([])
 check(r.embedded_fonts() == [], "embedded fonts removed")
 
+# Always Open Read-Only, as PowerPoint keeps it
+check(not r.readonly_recommended(), "not read-only recommended at first")
+r.set_readonly_recommended(True)
+r.save(out2)
+pp = zipfile.ZipFile(out2).read("ppt/presProps.xml").decode()
+check('uri="{1BD7E111-0CB8-44D6-8891-C1BB2F81B7CC}"' in pp and "p1710:readonlyRecommended" in pp and 'val="1"' in pp,
+      "saved as p1710:readonlyRecommended in presProps")
+r2 = P.open(out2)
+check(r2.readonly_recommended(), "read back")
+r2.set_readonly_recommended(False)
+check(not r2.readonly_recommended(), "and switched off")
+r2.undo()
+check(r2.readonly_recommended(), "one undo step")
+
 # media parts and replacing one
 mp = r.media_parts()
 check(isinstance(mp, list), "media parts listed")

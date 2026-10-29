@@ -767,6 +767,14 @@ impl PyPresentation {
     }
 
     /// (kind, loop, no animation, from, to, use timings, pen colour)
+    fn readonly_recommended(&mut self) -> bool {
+        self.deck.readonly_recommended()
+    }
+
+    fn set_readonly_recommended(&mut self, on: bool) -> PyResult<()> {
+        self.deck.set_readonly_recommended(on).map_err(err)
+    }
+
     fn show_settings(&mut self) -> (String, bool, bool, i64, i64, bool, String) {
         self.deck.show_settings()
     }

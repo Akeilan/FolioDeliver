@@ -145,7 +145,7 @@ try:
     win.run("transition-option:d")
     check(d.transition(1)[1] == "d", "effect option From Top")
     win.run("transition-duration:1.50")
-    check(abs(d.transition(1)[2] - 1.0) < 0.01, "duration (stored as slow)")
+    check(abs(d.transition(1)[2] - 1.5) < 0.01, "duration (stored exactly, as PowerPoint 2010 and later do)")
     win.run("transition-after:2.00")
     check(d.transition(1)[4] == 2.0, "advance after 2 s")
     win.run("transition-apply-all")
