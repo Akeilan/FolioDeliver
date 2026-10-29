@@ -408,3 +408,27 @@ impl Deck {
         Some((target, sound, stop, hl))
     }
 }
+
+impl Deck {
+    /// An attribute of presentation.xml's root (embedTrueTypeFonts, saveSubsetFonts...).
+    pub fn pres_attr(&mut self, name: &str) -> Option<String> {
+        let main = self.pres.clone();
+        let d = self.pkg.xml(&main).ok()?;
+        d.attr(d.root, name).map(|s| s.to_string())
+    }
+
+    pub fn set_pres_attr(&mut self, name: &str, value: Option<&str>) -> Result<(), String> {
+        let main = self.pres.clone();
+        self.begin("Options", &[main.clone()]);
+        let d = self.pkg.xml_mut(&main).map_err(|e| e.to_string())?;
+        let root = d.root;
+        match value {
+            Some(v) => d.set_attr(root, name, v),
+            None => {
+                d.remove_attr(root, name);
+            }
+        }
+        self.commit();
+        Ok(())
+    }
+}

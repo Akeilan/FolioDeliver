@@ -828,6 +828,22 @@ impl PyPresentation {
         r
     }
 
+    /// Join the last `n` undo steps into one labelled step (a command made of several changes).
+    fn merge_undo(&mut self, n: usize, label: &str) {
+        for _ in 1..n {
+            self.deck.merge_last_two(label);
+        }
+    }
+
+    fn pres_attr(&mut self, name: &str) -> Option<String> {
+        self.deck.pres_attr(name)
+    }
+
+    #[pyo3(signature = (name, value=None))]
+    fn set_pres_attr(&mut self, name: &str, value: Option<&str>) -> PyResult<()> {
+        self.deck.set_pres_attr(name, value).map_err(err)
+    }
+
     fn media_parts(&self) -> Vec<(String, usize)> {
         self.deck.media_parts()
     }

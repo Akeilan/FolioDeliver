@@ -1,6 +1,7 @@
 """Slide Show: the full-screen show with PowerPoint's keys and right-click menu, ink and laser
 pointer, black and white screens, and Presenter View (current and next slide, notes, timer)."""
 import math
+import os
 import time
 
 import cairo
@@ -217,8 +218,31 @@ class ShowState:
         for f in list(self.listeners):
             f()
 
+    def detour(self, slides, label=""):
+        """Show `slides` (a custom show, or a Zoom's slide or section), then come back here."""
+        slides = [i for i in slides if 0 <= i < self.deck.slide_count()]
+        if not slides:
+            return
+        self.__dict__.setdefault("detours", []).append((self.order, self.pos))
+        here = self.index
+        self.order = [here] + slides
+        self.pos = 0
+        self.go(1)
+
     def go(self, pos):
         if not self.order:
+            return
+        ds = self.__dict__.get("detours")
+        if ds and pos >= len(self.order):
+            # the end of a custom show (with return) or a Zoom's slides: back where it started
+            here = self.index
+            self.order, back = ds.pop()
+            self.order = list(self.order)
+            if here not in self.order:
+                self.order.append(here)
+                self.order.sort()
+            self.pos = self.order.index(here)
+            self.go(back)
             return
         if pos >= len(self.order) and getattr(self, "looped", False):
             pos = 0
@@ -584,6 +608,10 @@ class ShowWindow(Gtk.Window):
         if st.tool == "eraser":
             self._erase(ev)
             return True
+        act = self.action_at(ev.x, ev.y, "click")
+        if act is not None:
+            self.perform(act)
+            return True
         t = self.link_at(ev.x, ev.y)
         if t:
             self.follow(t)
@@ -626,6 +654,74 @@ class ShowWindow(Gtk.Window):
                     pass
         return None
 
+    def action_at(self, x, y, which):
+        """(shape, target, sound part, stop sound, zoom) of the object action under a point."""
+        st = self.st
+        if st.screen is not None or st.tool != "arrow":
+            return None
+        i = st.index
+        cache = getattr(self, "_act_shapes", None)
+        if cache is None or cache[0] != (i, st.deck.version):
+            found = []
+            for s in st.deck.shapes(i):
+                acts = {}
+                for w in ("click", "hover"):
+                    try:
+                        a = st.deck.shape_action(i, s["id"], w)
+                    except Exception:
+                        a = None
+                    if a is not None:
+                        acts[w] = a
+                zoom = None
+                try:
+                    from .b3_ui import zoom_info
+                    zoom = zoom_info(st.deck, i, s["id"])
+                except Exception:
+                    zoom = None
+                if acts or zoom:
+                    found.append((s, acts, zoom))
+            cache = self._act_shapes = ((i, st.deck.version), found)
+        sx, sy = self.to_slide(x, y)
+        for s, acts, zoom in reversed(cache[1]):
+            if s["x"] <= sx <= s["x"] + s["w"] and s["y"] <= sy <= s["y"] + s["h"]:
+                if zoom is not None and which == "click":
+                    return (s, None, "", False, zoom)
+                a = acts.get(which)
+                if a is not None and (a[0] or a[1] or a[2]):
+                    return (s, a[0], a[1], a[2], None)
+        return None
+
+    def perform(self, act):
+        """Run an object's action: its sound first, then where it goes."""
+        st = self.st
+        s, target, sound, stop, zoom = act
+        if stop or sound:
+            from .b3_ui import stop_action_sound
+            stop_action_sound()
+        if sound:
+            from .b3_ui import play_action_sound
+            play_action_sound(st.deck, sound)
+        if zoom is not None:
+            slides, back = zoom
+            if back:
+                st.detour(slides)
+            else:
+                st.goto_slide(slides[0])
+            return
+        if not target:
+            return
+        if target.startswith("show:"):
+            shows = st.deck.custom_shows()
+            k = int(target[5:] or 0)
+            if 0 <= k < len(shows):
+                st.detour(shows[k][1])
+            return
+        if target.startswith("program:"):
+            from .b3_ui import run_program
+            run_program(self, target[8:])
+            return
+        self.follow(target)
+
     def follow(self, t):
         st = self.st
         pos = st.pos
@@ -642,6 +738,8 @@ class ShowWindow(Gtk.Window):
         elif t == "end":
             st.end()
         else:
+            if "://" not in t and os.path.exists(os.path.expanduser(t)):
+                t = "file://" + os.path.abspath(os.path.expanduser(t))
             try:
                 Gtk.show_uri_on_window(self, t, Gdk.CURRENT_TIME)
             except Exception:
@@ -658,8 +756,15 @@ class ShowWindow(Gtk.Window):
 
     def on_motion(self, area, ev):
         st = self.st
+        if st.tool == "arrow":
+            hov = self.action_at(ev.x, ev.y, "hover")
+            hid = hov[0]["id"] if hov is not None else None
+            if hid != getattr(self, "_hover_id", None):
+                self._hover_id = hid
+                if hov is not None:
+                    self.perform(hov)
         if st.tool == "arrow" and not self.hide_pointer:
-            over = self.link_at(ev.x, ev.y) is not None
+            over = self.link_at(ev.x, ev.y) is not None or self.action_at(ev.x, ev.y, "click") is not None
             if over != getattr(self, "_over_link", False):
                 self._over_link = over
                 w = area.get_window()
