@@ -1,11 +1,11 @@
 Package: folio-show
-Version: 0.9.1
+Version: 0.9.2
 Section: editors
 Priority: optional
 Architecture: amd64
 Installed-Size: 6000
 Depends: python3 (>= 3.10), libc6 (>= 2.34), libcairo2, libfreetype6, libpango-1.0-0, libpangocairo-1.0-0, libglib2.0-0, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, librsvg2-common, fonts-crosextra-carlito, fonts-crosextra-caladea, fonts-liberation2 | fonts-liberation, python3-cryptography, python3-shapely, fontconfig
-Recommends: xdg-utils, python3-enchant, hunspell-en-us | hunspell-dictionary, mythes-en-us | mythes-dictionary, ffmpeg, gir1.2-gstreamer-1.0, gstreamer1.0-gtk3, gstreamer1.0-plugins-good, gstreamer1.0-libav
+Recommends: xdg-utils, python3-enchant, hunspell-en-us | hunspell-dictionary, mythes-en-us | mythes-dictionary, folio-reel | ffmpeg, gir1.2-gstreamer-1.0, gstreamer1.0-gtk3, gstreamer1.0-plugins-good, gstreamer1.0-libav
 Suggests: folio-post, libreoffice-impress-nogui | libreoffice-impress
 Replaces: folio-deliver (<< 0.9.0)
 Breaks: folio-deliver (<< 0.9.0)
