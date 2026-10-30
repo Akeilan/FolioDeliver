@@ -178,18 +178,27 @@ def video_dialog(win):
     return out
 
 
+def video_encoder():
+    """Folio Reel's engine when it's installed (R3-08), else ffmpeg; None when neither is."""
+    return shutil.which("folio-reel") or shutil.which("ffmpeg")
+
+
 def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
-    """Render the show to an MP4 with ffmpeg: transitions, animations (one after another, no
-    clicks) and each slide's time."""
+    """Render the show to an MP4: transitions, animations (one after another, no clicks) and each
+    slide's time. The frames are drawn here and encoded by Folio Reel (or ffmpeg without it)."""
     import cairo
     from .anim import Player
     from .show import blend
     deck = win.deck
+    reel = shutil.which("folio-reel")
     ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise RuntimeError("Creating a video needs ffmpeg, which isn't installed (package ffmpeg).")
-    cmd = [ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "%dx%d" % (w, h), "-r", str(fps),
-           "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]
+    if reel:
+        cmd = [reel, "--render", "--raw", "%dx%d" % (w, h), str(fps), path]
+    elif ffmpeg:
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "%dx%d" % (w, h), "-r", str(fps),
+               "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]
+    else:
+        raise RuntimeError("Creating a video needs Folio Reel (package folio-reel).")
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, preexec_fn=_die_with_parent)
     sw, sh = deck.size()
     scale = min(w / sw, h / sh)
@@ -257,7 +266,7 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
         proc.stdin.close()
         rc = proc.wait()
     if rc != 0:
-        raise RuntimeError("ffmpeg couldn't write the video.")
+        raise RuntimeError("The video couldn't be written.")
     return frames
 
 
@@ -505,8 +514,8 @@ class ShowCommands:
 
     # ------------------------------------------------------------ video
     def act_create_video(self):
-        if shutil.which("ffmpeg") is None:
-            self.dialogs.info("Creating a video needs ffmpeg, which isn't installed.\n\nInstall it with:  sudo apt install ffmpeg")
+        if video_encoder() is None:
+            self.dialogs.info("Creating a video needs Folio Reel, which isn't installed.\n\nInstall it with:  sudo apt install folio-reel")
             return
         opts = video_dialog(self)
         if opts is None:

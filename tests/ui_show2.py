@@ -134,20 +134,22 @@ try:
     Gtk.Dialog.run = lambda self: Gtk.ResponseType.CLOSE
     pump(0.1)
     # Create a Video
-    import shutil
-    if shutil.which("ffmpeg"):
+    if S.video_encoder():
         for i in range(4):
             k, o, du, cl, af = d.transition(i)
             d.set_transition([i], "fade", "", 0.3, True, 0.5)
         vid = os.path.join(tempfile.mkdtemp(), "show.mp4")
         r = win.export_video(vid, 320, 180, 0.5, True, fps=10)
         check(r == vid and os.path.getsize(vid) > 1000, "Create a Video writes an MP4 (%d bytes)" % (os.path.getsize(vid) if os.path.exists(vid) else 0))
-        import subprocess
-        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
-                             capture_output=True, text=True).stdout.strip()
-        check(out and 1.9 < float(out) < 5.0, "about two seconds of video: %s" % out)
+        import gi
+        gi.require_version("Gst", "1.0")
+        gi.require_version("GstPbutils", "1.0")
+        from gi.repository import Gst, GstPbutils
+        Gst.init(None)
+        out = GstPbutils.Discoverer.new(10 * Gst.SECOND).discover_uri(Gst.filename_to_uri(vid)).get_duration() / Gst.SECOND
+        check(1.9 < out < 5.0, "about two seconds of video (%s): %.2f" % (os.path.basename(S.video_encoder()), out))
     else:
-        print("ffmpeg missing: video skipped")
+        print("no video encoder (folio-reel or ffmpeg): video skipped")
     # Clipboard pane and pasting a picture into another presentation
     import struct, zlib
 
@@ -223,7 +225,7 @@ try:
     check(win.save_to(path), "save")
     from folio_deliver.core import Presentation
     q = Presentation.open(path)
-    check(q.custom_shows() == [("Highlights", [3, 1])] and abs(q.transition(3)[4] - (0.5 if shutil.which("ffmpeg") else 3.0)) < 0.5,
+    check(q.custom_shows() == [("Highlights", [3, 1])] and abs(q.transition(3)[4] - (0.5 if S.video_encoder() else 3.0)) < 0.5,
           "reopen keeps custom shows and timings")
     print("saved", path)
 except Exception:
