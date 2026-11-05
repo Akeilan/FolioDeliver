@@ -1190,6 +1190,8 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             c.select(new)
             return
         img = cb.wait_for_image()
+        if img is not None and self.paste_diagram(img):
+            return
         if img is not None:
             ok, data = img.save_to_bufferv("png", [], [])
             if ok:

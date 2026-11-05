@@ -511,12 +511,25 @@ class SlideCanvas(Gtk.Box):
         if s["kind"] != "cxnSp":
             top = rot_point(cx, y - ROT_GAP / self.scale, cx, cy, r)
             out["rot"] = self.to_px(*top)
+        if self.is_model(s):
+            out["turn3d"] = self.to_px(cx, cy)      # PowerPoint's 3-D turn handle, in the middle
         if s["kind"] == "cxnSp":
             fh, fv = s["flip_h"], s["flip_v"]
             a = (x + w if fh else x, y + h if fv else y)
             b = (x if fh else x + w, y if fv else y + h)
             out = {"start": self.to_px(*a), "end": self.to_px(*b)}
         return out
+
+    def is_model(self, s):
+        """A 3-D model (P3-09): it gets the turn handle (P3-12)."""
+        key = (self.index, s["id"])
+        cache = self.__dict__.setdefault("_model_cache", {})
+        if key not in cache:
+            try:
+                cache[key] = "am3d:model3d" in (self.deck.object_xml(self.index, s["id"]) or "")
+            except Exception:
+                cache[key] = False
+        return cache[key]
 
     def _draw_selection(self, cr):
         for sid in self.sel:
@@ -540,6 +553,31 @@ class SlideCanvas(Gtk.Box):
             cr.set_dash([])
             if len(self.sel) == 1 or True:
                 for name, (hx, hy) in self.handles(s).items():
+                    if name == "turn3d" and self.drag is not None and self.drag.get("kind") == "turn3d":
+                        tx, ty = self.drag.get("turn", (0, 0))
+                        cr.set_source_rgba(0.2, 0.2, 0.2, 0.85)
+                        cr.rectangle(hx + 18, hy - 11, 118, 22)
+                        cr.fill()
+                        cr.set_source_rgb(1, 1, 1)
+                        cr.select_font_face("Sans")
+                        cr.set_font_size(12)
+                        cr.move_to(hx + 24, hy + 4)
+                        cr.show_text("Turn %+d°  Tip %+d°" % (ty, tx))
+                    if name == "turn3d":
+                        # two curved arrows around a dot, white on a dark disc
+                        cr.arc(hx, hy, 14, 0, 2 * math.pi)
+                        cr.set_source_rgba(0.2, 0.2, 0.2, 0.75)
+                        cr.fill()
+                        cr.set_source_rgb(1, 1, 1)
+                        cr.set_line_width(1.6)
+                        cr.arc(hx, hy, 8, math.pi * 0.15, math.pi * 0.85)
+                        cr.stroke()
+                        cr.arc(hx, hy, 8, math.pi * 1.15, math.pi * 1.85)
+                        cr.stroke()
+                        cr.arc(hx, hy, 2, 0, 2 * math.pi)
+                        cr.fill()
+                        cr.set_line_width(1)
+                        continue
                     if name == "rot":
                         cr.arc(hx, hy, 5.5, 0, 2 * math.pi)
                         cr.set_source_rgb(1, 1, 1)
@@ -675,7 +713,8 @@ class SlideCanvas(Gtk.Box):
             if s is None:
                 continue
             for name, (hx, hy) in self.handles(s).items():
-                if abs(hx - x) <= HANDLE + 3 and abs(hy - y) <= HANDLE + 3:
+                r = 14 if name == "turn3d" else HANDLE + 3
+                if abs(hx - x) <= r and abs(hy - y) <= r:
                     return s, name
         return None, None
 
@@ -832,6 +871,8 @@ class SlideCanvas(Gtk.Box):
                 self.select([s["id"]])
                 self.win.run("media-play")
                 return True
+            if s is not None and s["kind"] == "pic" and self.win.edit_diagram(s["id"]) is not None:
+                return True
             if s is not None and s["kind"] == "pic":
                 self.win.run("tab:Picture Format")
             if s is not None and s["geom"] == "chart":
@@ -851,7 +892,7 @@ class SlideCanvas(Gtk.Box):
             return True
         s, handle = self.hit_handle(ev.x, ev.y)
         if s is not None:
-            self._begin_drag("rot" if handle == "rot" else "size", ev, s, handle)
+            self._begin_drag("turn3d" if handle == "turn3d" else "rot" if handle == "rot" else "size", ev, s, handle)
             return True
         s = self.hit_shape(sx, sy)
         # a table: the click goes into the cell under it
@@ -964,6 +1005,11 @@ class SlideCanvas(Gtk.Box):
                     dx = 0
             for sid, (x, y, w, h, r) in d["orig"].items():
                 d["boxes"][sid] = (x + dx, y + dy, w, h, r)
+        elif d["kind"] == "turn3d":
+            # half a degree per pixel: across to turn it round, up and down to tip it
+            d["turn"] = (round((ev.y - d["start"][1]) * 0.5), round((ev.x - d["start"][0]) * 0.5))
+            self.queue()
+            return True
         elif d["kind"] == "rot":
             s = d["shape"]
             x, y, w, h, r = d["orig"][s["id"]]
@@ -1067,6 +1113,12 @@ class SlideCanvas(Gtk.Box):
             self.win.selection_changed()
             return True
         if d["kind"] in ("crop", "croppan", "erase"):
+            return True
+        if d["kind"] == "turn3d":
+            tx, ty = d.get("turn", (0, 0))
+            if tx or ty:
+                self.win.turn_model((tx, ty, 0), sid=d["shape"]["id"])
+            self.queue()
             return True
         if d["kind"] == "ink":
             pts, self.ink_points = self.ink_points, []

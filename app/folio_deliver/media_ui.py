@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 import cairo
@@ -364,17 +365,33 @@ class Recorder:
         self.pipe = Gst.parse_launch('autoaudiosrc ! audioconvert ! audioresample ! wavenc ! filesink location="%s"' % path)
         self.started = None
 
-    def start(self):
-        self.pipe.set_state(self.Gst.State.PLAYING)
+    def start(self, wait=2.0):
+        """Start recording; like stop, never holds the app up for long."""
+        res = []
+        t = threading.Thread(target=lambda: res.append(self.pipe.set_state(self.Gst.State.PLAYING)),
+                             name="folio-recorder-start", daemon=True)
+        t.start()
+        t.join(wait)
+        self.failed = bool(res) and res[0] == self.Gst.StateChangeReturn.FAILURE
         self.started = time.time()
 
-    def stop(self):
-        # let wavenc finish its header
-        self.pipe.send_event(self.Gst.Event.new_eos())
-        bus = self.pipe.get_bus()
-        bus.timed_pop_filtered(2 * self.Gst.SECOND, self.Gst.MessageType.EOS | self.Gst.MessageType.ERROR)
-        self.pipe.set_state(self.Gst.State.NULL)
-        return time.time() - (self.started or time.time())
+    def stop(self, wait=4.0):
+        """Finish the file. A sound source that never answers (no sound server) can block
+        GStreamer, so the work runs on its own thread and the app waits at most `wait` s."""
+        took = time.time() - (self.started or time.time())
+        Gst, pipe = self.Gst, self.pipe
+
+        def finish():
+            if not getattr(self, "failed", False):
+                # let wavenc finish its header
+                pipe.send_event(Gst.Event.new_eos())
+                pipe.get_bus().timed_pop_filtered(2 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+            pipe.set_state(Gst.State.NULL)
+        t = threading.Thread(target=finish, name="folio-recorder-stop", daemon=True)
+        t.start()
+        t.join(wait)
+        self.stuck = t.is_alive()
+        return took
 
 
 class MediaCommands:
@@ -543,6 +560,48 @@ class MediaCommands:
         self.canvas.select([sid])
         return sid
 
+    def edit_diagram(self, sid, slide=None):
+        """K3-08: a Cork diagram picture opens in Folio Cork; each save there updates it here."""
+        from . import corkembed
+        slide = self.current if slide is None else slide
+        data = self.deck.picture_data(slide, sid)
+        if not data or not corkembed.is_diagram(bytes(data)):
+            return None
+        eds = self.__dict__.setdefault("_diagram_edits", {})
+        old = eds.get((slide, sid))
+        if old is not None and old.running():
+            return old
+        size0 = [corkembed.png_size(bytes(data))]
+
+        def changed(png):
+            box = next((s for s in self.deck.shapes(slide) if s["id"] == sid and s["kind"] == "pic"), None) \
+                if slide < self.deck.slide_count() else None
+            if box is None:
+                return
+            new = corkembed.png_size(png)
+            self.deck.replace_picture(slide, sid, png, "png")
+            if new and size0[0]:
+                kx = box["w"] / max(1, size0[0][0])
+                ky = box["h"] / max(1, size0[0][1])
+                self.deck.set_boxes(slide, [(sid, box["x"], box["y"], new[0] * kx, new[1] * ky, None)], "Edit Diagram")
+            size0[0] = new
+            self.changed(slide=True)
+
+        ed = corkembed.edit(bytes(data), changed, self.dialogs.message,
+                            on_close=lambda: eds.pop((slide, sid), None))
+        if ed is not None:
+            eds[(slide, sid)] = ed
+        return ed
+
+    def paste_diagram(self, pixbuf):
+        """Paste a diagram copied in Cork as an editable diagram picture; False when it isn't one."""
+        from . import corkembed
+        data = corkembed.clipboard_diagram(pixbuf)
+        if data is None:
+            return False
+        self._insert_picture_bytes(data, "png", "Diagram")
+        return True
+
     def open_object(self, sid):
         """Open an embedded document in its own program (a copy)."""
         info = self.deck.embedded_info(self.current, sid)
@@ -704,6 +763,9 @@ class MediaCommands:
         r = d.run()
         rec.stop()
         d.destroy()
+        if r == Gtk.ResponseType.OK and (rec.failed or rec.stuck):
+            self.dialogs.message("Sound couldn't be recorded. Check that a microphone is connected.")
+            return None
         if r == Gtk.ResponseType.OK and os.path.exists(path) and os.path.getsize(path) > 100:
             return self.insert_media(path, "audio", name="Recorded Sound")
         return None

@@ -753,6 +753,19 @@ class Backlog3Commands:
         """Put the fonts the slides use into the file (those whose licence allows it)."""
         from . import eot
         out, refused = [], []
+        # "Embed only the characters used": the text of every slide (P3-11).
+        chars = None
+        if self.deck.pres_attr("saveSubsetFonts") in ("1", "true"):
+            import html
+            chars = set(" ")
+            for i in range(self.deck.slide_count()):
+                try:
+                    xml = self.deck.shapes_xml(i, [s["id"] for s in self.deck.shapes(i)])
+                except Exception:
+                    continue
+                for t in re.findall(r"<a:t>([^<]*)</a:t>", xml):
+                    chars.update(html.unescape(t))
+        pack = (lambda b: eot.make(eot.subset(b, chars))) if chars is not None else eot.make
         for fam in self.fonts_used():
             styles = []
             for st, b, it in (("regular", False, False), ("bold", True, False), ("italic", False, True), ("boldItalic", True, True)):
@@ -767,7 +780,7 @@ class Backlog3Commands:
                     continue
                 styles.append((st, p))
             if styles and fam not in refused:
-                out.append((fam, [(st, eot.make(open(p, "rb").read())) for st, p in styles]))
+                out.append((fam, [(st, pack(open(p, "rb").read())) for st, p in styles]))
         self.deck.set_embedded_fonts(out)
         return [f for f, _s in out], refused
 
@@ -823,7 +836,7 @@ class Backlog3Commands:
         subset = Gtk.RadioButton.new_with_label(None, "Embed only the characters used in the presentation (best for reducing file size)")
         allc = Gtk.RadioButton.new_with_label_from_widget(subset, "Embed all characters (best for editing by other people)")
         (subset if self.deck.pres_attr("saveSubsetFonts") in ("1", "true") else allc).set_active(True)
-        note = Gtk.Label(label="Fonts are embedded whole either way; only fonts whose licence allows embedding are kept.", xalign=0)
+        note = Gtk.Label(label="Only fonts whose licence allows embedding are kept.", xalign=0)
         note.get_style_context().add_class("dim-label")
         s.attach(Gtk.Label(label="Preserve fidelity when sharing this presentation:", xalign=0), 0, 0, 1, 1)
         s.attach(embed, 0, 1, 1, 1)
