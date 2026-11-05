@@ -426,7 +426,8 @@ try:
     msgs = []
     keep = win.dialogs.message
     win.dialogs.message = lambda t, *a, **k: msgs.append(t)
-    win.edit_diagram(dsid) if dsid is not None else None
+    if dsid is not None and not os.path.exists("/usr/bin/folio-cork"):
+        win.edit_diagram(dsid)
     win.dialogs.message = keep
     os.environ["PATH"] = oldpath
     check(dsid is None or any("isn't installed" in m for m in msgs) or os.path.exists("/usr/bin/folio-cork"),
