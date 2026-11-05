@@ -82,7 +82,8 @@ def _settle(win):
     for _ in range(40):
         end = time.time() + 0.1
         while time.time() < end:
-            while Gtk.events_pending():
+            # a playing clip keeps events coming: never past the deadline
+            while Gtk.events_pending() and time.time() < end + 1.0:
                 Gtk.main_iteration_do(False)
             time.sleep(0.005)
         gw = win.get_window()

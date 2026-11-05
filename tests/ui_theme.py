@@ -17,7 +17,8 @@ FAILS = []
 def pump(t=0.2):
     end = time.time() + t
     while time.time() < end:
-        while Gtk.events_pending():
+        # a playing clip keeps events coming: never past the deadline
+        while Gtk.events_pending() and time.time() < end + 1.0:
             Gtk.main_iteration_do(False)
         time.sleep(0.003)
 
