@@ -149,4 +149,5 @@ for e in ERRORS:
 print("WALK FAILED" if ERRORS else "WALK OK")
 sys.stdout.flush()
 win.deck.modified = False
+sys.stdout.flush()
 os._exit(1 if ERRORS else 0)

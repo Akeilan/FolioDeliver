@@ -323,4 +323,5 @@ except Exception:
 print("UI FAILED: %d" % len(FAILS) if FAILS else "UI all passed")
 sys.stdout.flush()
 win.deck.modified = False
+sys.stdout.flush()
 os._exit(1 if FAILS else 0)
