@@ -2,6 +2,7 @@
 # Merge Shapes, the Eyedropper, actions, Zoom, Protect Presentation, Compare, Compress Media,
 # embedded fonts, 3-D models and Cameo.
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -279,6 +280,22 @@ try:
     out = os.path.join(TMP, "fonts.pptx")
     win.save_to(out)
     check(b"embedTrueTypeFonts" in zipfile.ZipFile(out).read("ppt/presentation.xml"), "the option is saved")
+    # P3-11: "Embed only the characters used" keeps only those outlines.
+    d.set_pres_attr("saveSubsetFonts", None)
+    win.embed_fonts_now()
+    whole = len(eot.font_of(bytes(d.part_bytes(d.embedded_fonts()[0][2]))))
+    d.set_pres_attr("saveSubsetFonts", "1")
+    win.embed_fonts_now()
+    sub = eot.font_of(bytes(d.part_bytes(d.embedded_fonts()[0][2])))
+    check(sub is not None and len(sub) < whole * 0.8, "only the characters used are embedded (%d -> %d bytes)" % (whole, len(sub or b"")))
+    import struct as _st
+    padded = sub + b"\0" * (-len(sub) % 4)
+    check(sum(_st.unpack(">%dI" % (len(padded) // 4), padded)) & 0xFFFFFFFF == 0xB1B0AFBA, "the smaller font's checksums are right")
+    sp = os.path.join(TMP, "subset.ttf")
+    open(sp, "wb").write(sub)
+    fam_ok = subprocess.run(["fc-scan", "--format", "%{family}", sp], capture_output=True, text=True).stdout
+    check("DejaVu" in fam_ok, "the smaller font still reads as a font (%s)" % fam_ok)
+    d.set_pres_attr("saveSubsetFonts", None)
 
     def opts_ok(dlg):
         return Gtk.ResponseType.OK
@@ -304,6 +321,25 @@ try:
     win.run("model-turn:0,15,0")
     check(b3_ui.model_info(d, 0, mid)[1] == (90.0, 15.0, 0.0), "turn the model 15 degrees")
     check(model_pic() != pic1, "its picture follows")
+    # P3-12: the turn handle in the middle of a selected model turns it by dragging.
+    cv = win.canvas
+    cv.select([mid])
+    sh = cv.shape(mid)
+    hs = cv.handles(sh)
+    check("turn3d" in hs, "a selected 3D model has the turn handle")
+    if "turn3d" in hs:
+        hx, hy = hs["turn3d"]
+
+        class _Ev:
+            def __init__(self, x, y, t=Gdk.EventType.BUTTON_PRESS):
+                self.x, self.y, self.button, self.state, self.type, self.time = x, y, 1, 0, t, 0
+        before = b3_ui.model_info(d, 0, mid)[1]
+        cv.on_press(cv.area, _Ev(hx, hy))
+        cv.on_motion(cv.area, _Ev(hx + 20, hy + 5))
+        cv.on_motion(cv.area, _Ev(hx + 60, hy + 10))
+        cv.on_release(cv.area, _Ev(hx + 60, hy + 10, Gdk.EventType.BUTTON_RELEASE))
+        after = b3_ui.model_info(d, 0, mid)[1]
+        check(after == ((before[0] + 5) % 360, (before[1] + 30) % 360, before[2]), "dragging the handle turns the model (%s -> %s)" % (before, after))
     d.save(out)
     z = zipfile.ZipFile(out)
     check(any(n.endswith(".glb") for n in z.namelist()) and b"am3d:model3d" in z.read(d.slide_parts()[0]),
@@ -319,6 +355,91 @@ try:
     check(bool(cams) == bool(glob.glob("/dev/video*")), "the camera fills the Cameo in the show when there is one")
     st.end()
     pump(0.2)
+    # ------------------------------------------------------------ K3-08 Cork diagrams
+    import shutil as _sh
+    from gi.repository import GdkPixbuf
+    from folio_deliver import corkembed
+    here = os.path.dirname(os.path.abspath(os.environ["FOLIO_TEST_SCRIPT"]))
+    diag = open(os.path.join(here, "data", "diagram.png"), "rb").read()
+    check(corkembed.is_diagram(diag) and not corkembed.is_diagram(diag[:-40] + diag[-12:]), "a Cork diagram picture is recognised")
+    cfg = os.path.join(TMP, "corkcfg")
+    os.makedirs(cfg, exist_ok=True)
+    os.environ["FOLIO_CONFIG_DIR"] = cfg
+    with open(os.path.join(cfg, "clipboard.png"), "wb") as fh:
+        fh.write(diag)
+    pbl = GdkPixbuf.PixbufLoader.new_with_type("png")
+    pbl.write(diag)
+    pbl.close()
+    cb = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    cb.set_image(pbl.get_pixbuf())
+    pump(0.3)
+    win.run("new-slide")
+    pump(0.2)
+    before = {s["id"] for s in d.shapes(win.current)}
+    win.run("paste")
+    pump(0.3)
+    new = [s for s in d.shapes(win.current) if s["id"] not in before and s["kind"] == "pic"]
+    dsid = new[0]["id"] if new else None
+    check(dsid is not None and corkembed.is_diagram(bytes(d.picture_data(win.current, dsid) or b"")),
+          "a diagram copied in Cork pastes as an editable diagram")
+    # a different picture on the clipboard pastes as an ordinary picture
+    other = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 928, 720)
+    other.fill(0x30A050FF)
+    cb.set_image(other)
+    pump(0.3)
+    before = {s["id"] for s in d.shapes(win.current)}
+    win.run("paste")
+    pump(0.3)
+    new = [s for s in d.shapes(win.current) if s["id"] not in before and s["kind"] == "pic"]
+    check(bool(new) and not corkembed.is_diagram(bytes(d.picture_data(win.current, new[0]["id"]) or b"")),
+          "another picture of the same size stays a plain picture")
+    if new:
+        d.delete_shapes(win.current, [new[0]["id"]])
+        win.changed(slide=True)
+    # double-click opens it in Cork; a save there updates the picture in place
+    fake = os.path.join(TMP, "fake-cork")
+    _sh.copy(os.path.join(here, "data", "fake_cork.py"), fake)
+    os.chmod(fake, 0o755)
+    os.environ["FOLIO_CORK"] = fake
+    if dsid is not None:
+        box0 = {s["id"]: s for s in d.shapes(win.current)}[dsid]
+        x, y = win.canvas.to_px(box0["x"] + box0["w"] / 2, box0["y"] + box0["h"] / 2)
+        win.canvas.select([])
+        win.canvas.on_press(win.canvas.area, Ev(type=Gdk.EventType._2BUTTON_PRESS, x=float(x), y=float(y), button=1,
+                                                state=Gdk.ModifierType(0), time=0))
+        t0 = time.time()
+        while time.time() - t0 < 8 and corkembed.png_size(bytes(d.picture_data(win.current, dsid) or b"")) != (600, 200):
+            pump(0.2)
+        data2 = bytes(d.picture_data(win.current, dsid) or b"")
+        check(corkembed.png_size(data2) == (600, 200) and corkembed.is_diagram(data2), "saving in Cork updates the diagram")
+        box1 = {s["id"]: s for s in d.shapes(win.current)}[dsid]
+        check(abs(box1["x"] - box0["x"]) < 0.5 and abs(box1["w"] / box1["h"] - 3.0) < 0.05,
+              "it keeps its place and takes the new proportions (%.1f x %.1f)" % (box1["w"], box1["h"]))
+        out = os.path.join(TMP, "diagram.pptx")
+        win.save_to(out)
+        z = zipfile.ZipFile(out)
+        check(any(corkembed.is_diagram(z.read(n)) for n in z.namelist() if n.startswith("ppt/media/")),
+              "the saved presentation carries the diagram")
+    del os.environ["FOLIO_CORK"]
+    oldpath = os.environ.get("PATH", "/usr/bin:/bin")
+    os.environ["PATH"] = "/nonexistent"
+    msgs = []
+    keep = win.dialogs.message
+    win.dialogs.message = lambda t, *a, **k: msgs.append(t)
+    win.edit_diagram(dsid) if dsid is not None else None
+    win.dialogs.message = keep
+    os.environ["PATH"] = oldpath
+    check(dsid is None or any("isn't installed" in m for m in msgs) or os.path.exists("/usr/bin/folio-cork"),
+          "without Cork, double-click says so")
+    # Record Sound never freezes the app, with or without a working microphone
+    import time as _t
+    from folio_deliver.media_ui import Recorder
+    rec = Recorder("/tmp/ui_b3_rec.wav")
+    t0 = _t.time()
+    rec.start()
+    pump(0.5)
+    rec.stop(wait=3.0)
+    check(_t.time() - t0 < 8.0, "Record Sound starts and stops within a few seconds (%.1f s)" % (_t.time() - t0))
 except Exception:
     traceback.print_exc()
     FAILS.append("exception")
