@@ -28,6 +28,11 @@ def gst():
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
         if not Gst.is_initialized():
+            # The OpenAL elements crash when no sound server answers; the system's own
+            # (PipeWire, PulseAudio, ALSA) play and record everything Show needs.
+            rank = os.environ.get("GST_PLUGIN_FEATURE_RANK", "")
+            if "openal" not in rank:
+                os.environ["GST_PLUGIN_FEATURE_RANK"] = ",".join(x for x in (rank, "openalsink:NONE,openalsrc:NONE") if x)
             Gst.init(None)
         return Gst
     except (ImportError, ValueError):

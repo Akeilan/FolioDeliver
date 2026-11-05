@@ -1,6 +1,7 @@
 # Run inside Folio Show (FOLIO_TEST_SCRIPT): every command on the ribbon and in its menus,
 # with text being edited, with an object selected and with nothing selected; every dialog is
 # answered OK, then Cancel. Nothing may raise. Writes the list of commands still unavailable.
+import glob
 import os
 import sys
 import time
@@ -16,7 +17,8 @@ sys.excepthook = lambda t, v, tb: (ERRORS.append("".join(traceback.format_except
 def pump(t=0.02):
     end = time.time() + t
     while time.time() < end:
-        while Gtk.events_pending():
+        # a playing clip keeps events coming: never past the deadline
+        while Gtk.events_pending() and time.time() < end + 1.0:
             Gtk.main_iteration_do(False)
         time.sleep(0.002)
 
@@ -37,7 +39,9 @@ Gtk.NativeDialog.run = lambda d: Gtk.ResponseType.CANCEL
 Gtk.PrintOperation.run = lambda *a: Gtk.PrintOperationResult.CANCEL
 Gtk.Menu.popup_at_pointer = lambda *a: None
 _msg = win.dialogs.message
-win.dialogs.message = lambda text, title=None: ERRORS.append("dialog: " + text)
+# a machine with no microphone: Record Sound says so, which is right, not a fault
+NO_MIC = not glob.glob("/dev/snd/pcmC*c")
+win.dialogs.message = lambda text, title=None: None if (NO_MIC and "microphone" in text) else ERRORS.append("dialog: " + text)
 
 SKIP = {"close", "new", "open", "help", "switch-windows", "show-start", "show-current", "save", "save-as"}
 
