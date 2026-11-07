@@ -746,6 +746,41 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
     def act_export_png_all(self):
         self.act_export_png(True)
 
+    def act_package_folder(self):
+        """Package into a folder (P4-02): the deck and the files it links to, in one folder."""
+        self._save_notes()
+        d = Gtk.FileChooserNative(title="Package into a Folder", transient_for=self,
+                                  action=Gtk.FileChooserAction.SELECT_FOLDER)
+        if self.path:
+            d.set_current_folder(os.path.dirname(self.path))
+        self.package_dialog = d
+        r = d.run()
+        where = d.get_filename() if r == Gtk.ResponseType.ACCEPT else None
+        d.destroy()
+        self.package_dialog = None
+        if not where:
+            return None
+        return self.package_into(where)
+
+    def package_into(self, where):
+        """Write the package under `where`, and say what went in it (P4-02)."""
+        from . import packfolder
+        name = self.title_text()
+        dest = os.path.join(where, name + " Package")
+        base = os.path.dirname(self.path) if self.path else where
+        try:
+            deck, copied, missing = packfolder.package(bytes(self.deck.to_bytes()), name + ".pptx", dest, base)
+        except OSError as e:
+            self.dialogs.message("The package couldn't be written.\n%s" % e)
+            return None
+        said = "The presentation and %d linked file(s) are in\n%s" % (len(copied), dest) if copied else \
+               "The presentation is in\n%s" % dest
+        if missing:
+            said += "\n\nThese links point at files that aren't there, so they were left as they are:\n" + \
+                    "\n".join(missing[:6])
+        self.dialogs.info(said)
+        return deck
+
     def act_print(self):
         self.show_backstage("print")
 

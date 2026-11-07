@@ -23,6 +23,9 @@ PDF, pictures and video.
   Record Sound; export the whole show to video.
 - **Sharing**: PDF, pictures, embedded fonts (only the characters used), password protection,
   and copy and paste with the rest of Folio Studio.
+- **Package into a folder** (P4-02): Export > Package into a Folder puts the presentation and the
+  files it links to in one folder, with the links pointing at the copies, so the lot can be carried
+  on a stick and opened on another computer.
 
 ## Layout
 
