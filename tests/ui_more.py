@@ -221,6 +221,25 @@ try:
     win.backstage.close()
     from folio_deliver.window import table_from_text
     check(table_from_text("just text") is None and table_from_text("a\tb") == [["a", "b"]], "plain text stays text")
+
+    # Export > Package into a Folder (P4-02): the deck and what it links to, in one folder
+    import tempfile as TF
+    pdir = TF.mkdtemp(prefix="show-pack-")
+    note = os.path.join(pdir, "Handout.txt")
+    open(note, "w").write("the handout")
+    win.go_slide(0)
+    win.canvas.select([])
+    psid = win.deck.add_shape(0, "rect", 100.0, 400.0, 200.0, 60.0)
+    win.deck.set_shape_link(0, psid, note)
+    win.dialogs.info = lambda *a, **k: None
+    out = win.package_into(pdir)
+    check(out and os.path.isfile(out), "Package into a Folder writes the presentation")
+    from folio_deliver import packfolder
+    check(os.path.isfile(os.path.join(os.path.dirname(out), packfolder.LINKS_DIR, "Handout.txt")),
+          "and the file it links to goes with it")
+    tgts = [t for _p, _r, t in packfolder.externals(out)]
+    check(any(t.startswith("../../Linked%20Files/") for t in tgts), "the link points at the copy")
+    win.deck.delete_shapes(0, [psid])
 except Exception:
     traceback.print_exc()
     FAILS.append("exception")

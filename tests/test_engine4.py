@@ -158,5 +158,37 @@ check(r2.readonly_recommended(), "one undo step")
 # media parts and replacing one
 mp = r.media_parts()
 check(isinstance(mp, list), "media parts listed")
+# ---------------------------------------------------------------- P4-02 package into a folder
+from folio_deliver import packfolder  # noqa: E402
+
+pk = P.open(BLANK)
+sid = pk.add_shape(0, "rect", 100.0, 100.0, 200.0, 80.0)
+T = tempfile.mkdtemp(prefix="show-package-")
+linked = os.path.join(T, "Notes for the talk.txt")
+open(linked, "w").write("the handout")
+pk.set_shape_link(0, sid, linked)
+sid2 = pk.add_shape(0, "rect", 100.0, 200.0, 200.0, 80.0)
+pk.set_shape_link(0, sid2, "https://example.org/live")
+sid3 = pk.add_shape(0, "rect", 100.0, 300.0, 200.0, 80.0)
+pk.set_shape_link(0, sid3, os.path.join(T, "gone.txt"))
+src = os.path.join(T, "Talk.pptx")
+pk.save(src)
+
+dest = os.path.join(T, "Talk Package")
+deck, copied, missing = packfolder.package(open(src, "rb").read(), "Talk.pptx", dest, T)
+check(os.path.isfile(deck), "the presentation is in the package folder")
+check(copied == ["Notes for the talk.txt"], "the file it links to came along: %r" % (copied,))
+check(os.path.isfile(os.path.join(dest, packfolder.LINKS_DIR, "Notes for the talk.txt")), "and is beside it")
+check(len(missing) == 1 and "gone.txt" in missing[0], "a link to a file that isn't there is reported: %r" % (missing,))
+tgts = [t for _part, _rid, t in packfolder.externals(deck)]
+check(any(t.startswith("../../Linked%20Files/") for t in tgts), "the link points at the copy: %r" % (tgts,))
+check(any(t == "https://example.org/live" for t in tgts), "a web address is left alone")
+back = P.open(deck)
+check(back.slide_count() == pk.slide_count(), "the packaged deck still opens")
+check(packfolder.local_path("https://example.org", T) is None and
+      packfolder.local_path("file:///etc/hosts", T) == "/etc/hosts" and
+      packfolder.local_path("notes.txt", T) == os.path.join(T, "notes.txt"),
+      "what a link points at on this computer")
+
 print("FAILED: %d" % len(FAILS) if FAILS else "all passed")
 sys.exit(1 if FAILS else 0)

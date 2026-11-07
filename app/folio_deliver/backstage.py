@@ -367,7 +367,8 @@ class Backstage(Gtk.Box):
                            ("Save Every Slide as a Picture (PNG)", "export-png-all"),
                            ("Change File Type: PowerPoint Show (.ppsx)", "save-as:ppsx"),
                            ("Change File Type: PowerPoint Template (.potx)", "save-as:potx"),
-                           ("Create a Video", "create-video")):
+                           ("Create a Video", "create-video"),
+                           ("Package into a Folder", "package-folder")):
             b = Gtk.Button(label=label)
             b.set_halign(Gtk.Align.START)
             b.connect("clicked", lambda _b, c=cmd: (self.close(), self.win.run(c)))
