@@ -99,6 +99,21 @@ class InkCommands:
         if tool in pens:
             pens[tool][1] = float(pt)
 
+    def act_ink_replay(self):
+        """Draw > Ink Replay (P4-01): play this slide's strokes back in the order they
+        were drawn. Clicking it again while it plays stops it."""
+        c = self.canvas
+        if getattr(c, "ink_replay", None) is not None:
+            c.stop_ink_replay()
+            return False
+        strokes = self.deck.ink_strokes(self.current)
+        if not strokes:
+            self.dialogs.info("There is no ink on this slide to play back. Draw with the Pen or "
+                              "Highlighter first, or annotate a slide while presenting and keep "
+                              "the annotations.", "Ink Replay")
+            return False
+        return c.play_ink(strokes)
+
     def act_ink_to_shape(self):
         self.ink_shapes = not getattr(self, "ink_shapes", False)
         self.ribbon.update("ink-to-shape", "true" if self.ink_shapes else "false")

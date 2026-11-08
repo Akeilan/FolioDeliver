@@ -8,6 +8,39 @@ from gi.repository import Gdk, GLib, Gtk
 
 from .core import surface_from
 
+def _stroke_len(pts):
+    """How far the pen travelled, in slide units."""
+    out = 0.0
+    for a, b in zip(pts, pts[1:]):
+        out += ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+    return out
+
+
+def _stroke_seconds(pts):
+    """How long to spend replaying a stroke: long ones take longer, within reason."""
+    return min(2.5, max(0.25, _stroke_len(pts) / 400.0))
+
+
+def _stroke_upto(pts, part):
+    """The first `part` of a stroke, cut mid-segment so the pen moves smoothly."""
+    if part >= 1.0:
+        return pts
+    want = _stroke_len(pts) * max(0.0, part)
+    if want <= 0.0:
+        return pts[:1]
+    out = [pts[0]]
+    gone = 0.0
+    for a, b in zip(pts, pts[1:]):
+        d = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+        if gone + d >= want:
+            k = (want - gone) / d if d else 1.0
+            out.append((a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k))
+            return out
+        gone += d
+        out.append(b)
+    return out
+
+
 HANDLE = 4.0          # half size of a sizing handle (px)
 ROT_GAP = 22.0        # rotation handle above the top edge (px)
 MARGIN = 28.0         # grey margin round the slide (px)
@@ -148,9 +181,11 @@ class SlideCanvas(Gtk.Box):
         if i is None or (i >= self.deck.slide_count() and getattr(self.win, "master_mode", None) is None):
             return None, []
         hide = self.crop["id"] if self.crop is not None else None
-        key = (i, self.deck.version, round(self.scale, 4), hide)
-        if self.cache is not None and self.cache[:4] == key:
-            return self.cache[4], self.cache[5]
+        rp = getattr(self, "ink_replay", None)
+        replaying = tuple(sorted(x[0] for x in rp[0])) if rp else None
+        key = (i, self.deck.version, round(self.scale, 4), hide, replaying)
+        if self.cache is not None and self.cache[:5] == key:
+            return self.cache[5], self.cache[6]
         if hide is not None:
             # the picture being cropped is drawn by the crop view
             w, h, stride, data, shapes = self.deck.render(i, self.scale, True, {hide: (1.0, 0.0, 0.0, 1.0, 1.0, 0.0, True, "", 1.0)})
@@ -158,6 +193,10 @@ class SlideCanvas(Gtk.Box):
             shapes = [keep.get(x["id"], x) for x in shapes]
             if hide in keep and all(x["id"] != hide for x in shapes):
                 shapes.append(keep[hide])
+        elif replaying:
+            # the ink is drawn by the replay instead, so the slide goes out without it
+            off = {sid: (1.0, 0.0, 0.0, 1.0, 1.0, 0.0, True, "", 1.0) for sid in replaying}
+            w, h, stride, data, shapes = self.deck.render(i, self.scale, True, off)
         else:
             w, h, stride, data, shapes = self.deck.render(i, self.scale, True)
         surf = surface_from(w, h, stride, data)
@@ -245,6 +284,7 @@ class SlideCanvas(Gtk.Box):
             self._draw_anim_tags(cr)
         self._draw_comment_markers(cr)
         self.win.draw_handout_frames(cr)
+        self._draw_ink_replay(cr)
         if self.ink_points and len(self.ink_points) > 1:
             pens = getattr(self.win, "ink_pens", None) or __import__("folio_deliver.ink_ui", fromlist=["x"]).PENS
             color, width, alpha = pens.get(self.ink_tool, (0, 1.0, 100.0))
@@ -431,6 +471,63 @@ class SlideCanvas(Gtk.Box):
             ny = min(y, max(y + h - fh, oy + dy))
             self.crop["full"] = [nx, ny, fw, fh]
         self.queue()
+
+    def play_ink(self, strokes, speed=1.0):
+        """P4-01 Ink Replay: draw the slide's strokes again, in the order they were made.
+        strokes: [(shape id, [(x, y)], colour, width, alpha)]."""
+        if not strokes:
+            return False
+        total = sum(max(0.25, _stroke_seconds(pts)) for _sid, pts, _c, _w, _a in strokes) / max(0.1, speed)
+        self.ink_replay = (strokes, time.time(), total, max(0.1, speed))
+        self.invalidate()
+
+        def tick():
+            if getattr(self, "ink_replay", None) is None:
+                self.queue()
+                return False
+            self.queue()
+            return True
+        GLib.timeout_add(16, tick)
+        return True
+
+    def stop_ink_replay(self):
+        if getattr(self, "ink_replay", None) is not None:
+            self.ink_replay = None
+            self.invalidate()
+            self.queue()
+
+    def _draw_ink_replay(self, cr):
+        """The strokes so far, over a slide drawn without its ink. True while playing."""
+        rp = getattr(self, "ink_replay", None)
+        if rp is None:
+            return False
+        strokes, start, total, speed = rp
+        t = (time.time() - start) * speed
+        done = 0.0
+        cr.save()
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        for _sid, pts, color, width, alpha in strokes:
+            secs = max(0.25, _stroke_seconds(pts))
+            if t <= done:
+                break
+            part = min(1.0, (t - done) / secs)
+            done += secs
+            upto = _stroke_upto(pts, part)
+            if len(upto) < 2:
+                continue
+            cr.set_source_rgba(((color >> 16) & 255) / 255.0, ((color >> 8) & 255) / 255.0,
+                               (color & 255) / 255.0, max(0.0, min(1.0, alpha / 100.0)))
+            cr.set_line_width(max(1.0, width * self.scale))
+            cr.move_to(*self.to_px(*upto[0]))
+            for q in upto[1:]:
+                cr.line_to(*self.to_px(*q))
+            cr.stroke()
+        cr.restore()
+        if t >= total:
+            self.ink_replay = None
+            self.invalidate()
+        return True
 
     def play_animation(self, pl):
         self.anim_play = (pl, time.time())

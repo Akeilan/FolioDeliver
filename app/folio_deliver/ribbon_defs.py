@@ -613,6 +613,8 @@ def build_ribbon(win):
                                              ("Turquoise", "ink-color:00FFFF")]),
                                  B.big("Eraser", "r-draw-eraser", "ink:eraser", "E")])
     B.group(t, "Convert", [B.big("Ink to Shape", "r-ink-to-shape", "ink-to-shape", "IS")])
+    B.group(t, "Replay", [B.big("Ink Replay", "r-ink-replay", "ink-replay", "IR",
+                                tip="Play this slide's ink back as it was drawn")])
     r.add_tab(t)
 
     # ================================================================ Design
