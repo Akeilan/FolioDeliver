@@ -277,3 +277,72 @@ fn equation_xml(id: u32, omml: &str, pic: &str, x: f64, y: f64, w: f64, h: f64) 
         sppr("<a:noFill/>"),
         sppr(&format!(r#"<a:blipFill><a:blip r:embed="{pic}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>"#)))
 }
+
+impl Deck {
+    /// P4-01: the strokes on a slide, in the order they were drawn, so the app can
+    /// play them back. Reads each ink shape's path straight out of its custGeom.
+    pub fn ink_strokes(&mut self, i: usize) -> Result<Vec<(u32, Vec<(f64, f64)>, u32, f64, f64)>, String> {
+        let part = self.slide_part(i)?;
+        let d = self.pkg.xml(&part).map_err(|e| e.to_string())?;
+        let tree = match path(d, d.root, &["p:cSld", "p:spTree"]) {
+            Some(t) => t,
+            None => return Ok(Vec::new()),
+        };
+        let emu = |v: &str| v.parse::<f64>().unwrap_or(0.0) / 12700.0;
+        let mut out = Vec::new();
+        for sp in d.elements(tree) {
+            if d.name(sp) != "p:sp" {
+                continue;
+            }
+            let name = path(d, sp, &["p:nvSpPr", "p:cNvPr"]).and_then(|c| d.attr(c, "name")).unwrap_or("");
+            if !name.starts_with("Ink") {
+                continue;
+            }
+            let id = path(d, sp, &["p:nvSpPr", "p:cNvPr"])
+                .and_then(|c| d.attr(c, "id"))
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0);
+            let spr = match d.child(sp, "p:spPr") {
+                Some(x) => x,
+                None => continue,
+            };
+            let (mut ox, mut oy) = (0.0, 0.0);
+            if let Some(off) = path(d, spr, &["a:xfrm", "a:off"]) {
+                ox = d.attr(off, "x").map(emu).unwrap_or(0.0);
+                oy = d.attr(off, "y").map(emu).unwrap_or(0.0);
+            }
+            let p = match path(d, spr, &["a:custGeom", "a:pathLst", "a:path"]) {
+                Some(x) => x,
+                None => continue,
+            };
+            let mut pts = Vec::new();
+            for seg in d.elements(p) {
+                let kind = d.name(seg);
+                if kind != "a:moveTo" && kind != "a:lnTo" {
+                    continue;
+                }
+                if let Some(pt) = d.child(seg, "a:pt") {
+                    let x = d.attr(pt, "x").map(emu).unwrap_or(0.0);
+                    let y = d.attr(pt, "y").map(emu).unwrap_or(0.0);
+                    pts.push((ox + x, oy + y));
+                }
+            }
+            if pts.len() < 2 {
+                continue;
+            }
+            // the pen it was drawn with
+            let ln = d.child(spr, "a:ln");
+            let width = ln.and_then(|l| d.attr(l, "w")).map(emu).unwrap_or(1.0);
+            let clr = ln.and_then(|l| path(d, l, &["a:solidFill", "a:srgbClr"]));
+            let color = clr.and_then(|c| d.attr(c, "val")).and_then(|v| u32::from_str_radix(v, 16).ok()).unwrap_or(0);
+            let alpha = clr
+                .and_then(|c| d.child(c, "a:alpha"))
+                .and_then(|a| d.attr(a, "val"))
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|v| v / 1000.0)
+                .unwrap_or(100.0);
+            out.push((id, pts, color, width, alpha));
+        }
+        Ok(out)
+    }
+}

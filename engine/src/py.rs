@@ -594,6 +594,12 @@ impl PyPresentation {
     }
 
     // --------------------------------------------------------- ink, media, objects
+    /// P4-01 Ink Replay: the slide's strokes in the order they were drawn, as
+    /// (shape id, points, colour, width, alpha).
+    fn ink_strokes(&mut self, i: usize) -> PyResult<Vec<(u32, Vec<(f64, f64)>, u32, f64, f64)>> {
+        self.deck.ink_strokes(i).map_err(err)
+    }
+
     #[pyo3(signature = (i, pts, color, width, alpha=100.0, name="Ink"))]
     fn add_ink(&mut self, i: usize, pts: Vec<(f64, f64)>, color: u32, width: f64, alpha: f64, name: &str) -> PyResult<u32> {
         self.deck.add_ink(i, &pts, color, width, alpha, name).map_err(err)
