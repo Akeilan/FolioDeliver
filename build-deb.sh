@@ -17,6 +17,14 @@ mkdir -p "$STAGE/usr/lib/folio-show" "$STAGE/usr/share/folio-show"
 cp -a "$HERE/app/folio_deliver" "$STAGE/usr/lib/folio-show/"
 find "$STAGE/usr/lib/folio-show" -name '__pycache__' -prune -exec rm -rf {} +
 ENGINE="${FOLIO_DELIVER_ENGINE:-$HERE/engine/out/deliver_core.so}"
+[ -f "$ENGINE" ] || { echo "no engine at $ENGINE: run engine/build-jammy.sh" >&2; exit 1; }
+# A package built from an engine older than its own source ships work that never reaches anyone
+# and cannot be told apart from work that was never done: Sheet carried a three-week-old engine
+# that way. Refuse it rather than ship it.
+STALE="$(find "$HERE/engine/src" "$HERE/engine/Cargo.toml" -newer "$ENGINE" 2>/dev/null | head -5)"
+[ -z "$STALE" ] || { echo "the engine binary is older than its own source:" >&2
+  echo "$STALE" | sed 's#^#  #' >&2
+  echo "run engine/build-jammy.sh first (or set FOLIO_DELIVER_ENGINE)" >&2; exit 1; }
 install -m 644 "$ENGINE" "$STAGE/usr/lib/folio-show/deliver_core.so"
 cp -a "$HERE/share/templates" "$HERE/share/iconset" "$STAGE/usr/share/folio-show/"
 # the old names keep working: the command, and the icon (dock pins, file-type icons)
