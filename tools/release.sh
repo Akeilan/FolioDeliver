@@ -23,6 +23,9 @@ cp /srv/jammy/tmp/deliver-command-walk.tsv $R/docs/command-walk.tsv 2>/dev/null
 echo "not available: $(grep -c NOT_YET $R/docs/command-walk.tsv)"
 echo "== debs"
 sh $R/build-deb.sh /home/claude/out >/dev/null && ls -la /home/claude/out/folio-show_${V}_amd64.deb /home/claude/out/folio-deliver_${V}_all.deb
+echo "== X4-05: against the app it replaces"
+bash /home/claude/folio-suite/tools/compare-release.sh folio-show /home/claude/folio-deliver /home/claude/out/folio-show_${V}_amd64.deb || \
+  echo "X4-05 FAILED: this candidate shows less than the app it replaces"
 for m in /srv/jammy /srv/nolo /srv/noble; do
   cp /home/claude/out/folio-show_${V}_amd64.deb /home/claude/out/folio-deliver_${V}_all.deb $OLDDEB $m/tmp/
   echo "== upgrade from Folio Deliver 0.8.0 in $m"
