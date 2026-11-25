@@ -69,9 +69,17 @@ fn attrs_of(e: &BytesStart) -> Result<Vec<(String, String)>, XmlError> {
     Ok(out)
 }
 
+/// Whether XML 1.0 allows this character at all: control characters (other than tab, line feed and
+/// carriage return) and U+FFFE/U+FFFF make a file other programs refuse, so they are never written
+/// (Folio Show S12-02).
+pub fn xml_char_ok(ch: char) -> bool {
+    !matches!(ch, '\u{0}'..='\u{8}' | '\u{b}' | '\u{c}' | '\u{e}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}')
+}
+
 pub fn escape_text(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch {
+            _ if !xml_char_ok(ch) => {}
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
@@ -90,6 +98,7 @@ pub fn attr_escaped(s: &str) -> String {
 pub fn escape_attr(s: &str, out: &mut String) {
     for ch in s.chars() {
         match ch {
+            _ if !xml_char_ok(ch) => {}
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),

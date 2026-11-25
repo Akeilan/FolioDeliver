@@ -12,7 +12,7 @@ rsync -a --delete --exclude target --exclude .git $R/ /srv/jammy/src/fdl/
 echo "== engine"
 chroot /srv/jammy bash -c "cd /src/fdl; for t in tests/test_engine*.py; do PYTHONPATH=/tmp python3 \$t | grep -E '^FAIL|passed|FAILED'; done"
 echo "== ui (source)"
-chroot /srv/jammy bash -c "cd /src/fdl; for u in ${UI_TESTS:-ui_basic.py ui_more.py ui_anim.py ui_review.py ui_master.py ui_show2.py ui_objects.py ui_media.py ui_b3.py}; do echo \$u; DISPLAY=:${XD:-99} UI_TIMEOUT=300 sh tests/run_ui.sh \$u 2>&1 | grep -E '^FAIL|UI all|UI FAILED|Traceback'; done"
+chroot /srv/jammy bash -c "cd /src/fdl; for u in ${UI_TESTS:-ui_basic.py ui_more.py ui_anim.py ui_review.py ui_master.py ui_show2.py ui_objects.py ui_media.py ui_b3.py ui_ink_replay.py ui_backlog12.py}; do echo \$u; DISPLAY=:${XD:-99} UI_TIMEOUT=300 sh tests/run_ui.sh \$u 2>&1 | grep -E '^FAIL|UI all|UI FAILED|Traceback'; done"
 echo "== rename (source)"
 chroot /srv/jammy bash -c "cd /src/fdl; DISPLAY=:${XD:-99} PYTHONPATH=/tmp sh tests/rename_test.sh 2>&1 | grep -E '^FAIL|RENAME|Traceback'"
 echo "== themes (X2-01)"
@@ -41,7 +41,7 @@ for m in /srv/jammy /srv/nolo /srv/noble; do
   rm -rf $m/tmp/fdltests; mkdir -p $m/tmp/fdltests; cp -r $R/tests/* $m/tmp/fdltests/
   echo "== installed in $m"
   chroot $m bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} sh rename_test.sh installed 2>&1 | grep -E '^FAIL|RENAME|Traceback|--version'"
-  for u in ${INST_TESTS:-ui_basic.py ui_review.py ui_master.py ui_show2.py ui_objects.py ui_media.py ui_b3.py}; do
+  for u in ${INST_TESTS:-ui_basic.py ui_review.py ui_master.py ui_show2.py ui_objects.py ui_media.py ui_b3.py ui_backlog12.py}; do
     chroot $m bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} UI_TIMEOUT=300 sh run_installed.sh /tmp/fdltests/$u 2>&1 | grep -E '^FAIL|UI all|UI FAILED|Traceback'"
   done
   chroot $m bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} UI_TIMEOUT=1200 sh theme_run.sh run_installed.sh 2>&1 | grep -E '^-- |^FAIL|UI all|UI FAILED|Traceback'"
@@ -49,5 +49,6 @@ done
 echo "== Wayland (Weston) on 24.04: rename and desktop themes"
 cp /home/claude/folio-suite/tests/wl.sh /srv/noble/tmp/wl.sh
 chroot /srv/noble bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} /tmp/wl.sh sh rename_test.sh installed 2>&1 | grep -E '^FAIL|RENAME|Traceback'"
+chroot /srv/noble bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} UI_TIMEOUT=600 /tmp/wl.sh sh run_installed.sh /tmp/fdltests/ui_backlog12.py 2>&1 | grep -E '^FAIL|UI all|UI FAILED|Traceback'"
 chroot /srv/noble bash -c "cd /tmp/fdltests; DISPLAY=:${XD:-99} UI_TIMEOUT=1200 /tmp/wl.sh sh theme_run.sh run_installed.sh 2>&1 | grep -E '^-- |^FAIL|UI all|UI FAILED|checks|Traceback'"
 echo "== release done"

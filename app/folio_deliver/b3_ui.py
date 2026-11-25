@@ -722,20 +722,6 @@ class Backlog3Commands:
             self.password = pw
             return pkg
 
-    def write_protected(self, path):
-        """Save the presentation encrypted with its password."""
-        from . import crypt
-        tmp = path + ".folio-tmp"
-        self.deck.save(tmp)
-        try:
-            data = open(tmp, "rb").read()
-        finally:
-            os.remove(tmp)
-        out = crypt.encrypt(data, self.password)
-        with open(path, "wb") as f:
-            f.write(out)
-        self.deck.modified = False
-
     # ------------------------------------------------------------ embedded fonts and Options (P3-08)
     def fonts_used(self):
         fonts = set()
@@ -831,6 +817,19 @@ class Backlog3Commands:
         p.attach(spell, 0, 0, 1, 1)
         nb.append_page(p, Gtk.Label(label="Proofing"))
         s = Gtk.Grid(row_spacing=8, column_spacing=10, margin=12)
+        # AutoRecover (S12-01), as PowerPoint words it
+        mins = int(settings.get("autorecover_minutes", 10) or 0)
+        ar = Gtk.CheckButton(label="Save AutoRecover information every")
+        ar.set_active(mins > 0)
+        ar_n = Gtk.SpinButton.new_with_range(1, 120, 1)
+        ar_n.set_value(mins or 10)
+        ar_row = Gtk.Box(spacing=6)
+        ar_row.pack_start(ar, False, False, 0)
+        ar_row.pack_start(ar_n, False, False, 0)
+        ar_row.pack_start(Gtk.Label(label="minutes"), False, False, 0)
+        ar.connect("toggled", lambda b: ar_n.set_sensitive(b.get_active()))
+        ar_n.set_sensitive(mins > 0)
+        s.attach(ar_row, 0, 5, 1, 1)
         embed = Gtk.CheckButton(label="Embed fonts in the file")
         embed.set_active(self.deck.pres_attr("embedTrueTypeFonts") in ("1", "true"))
         subset = Gtk.RadioButton.new_with_label(None, "Embed only the characters used in the presentation (best for reducing file size)")
@@ -850,6 +849,7 @@ class Backlog3Commands:
             settings["user_name"] = name.get_text()
             settings["user_initials"] = initials.get_text()
             settings["spell_as_you_type"] = spell.get_active()
+            settings["autorecover_minutes"] = ar_n.get_value_as_int() if ar.get_active() else 0
             want = embed.get_active()
             if want != (self.deck.pres_attr("embedTrueTypeFonts") in ("1", "true")):
                 self.deck.set_pres_attr("embedTrueTypeFonts", "1" if want else None)

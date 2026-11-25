@@ -336,7 +336,7 @@ impl Deck {
         Ok(())
     }
 
-    fn drop_rel(pkg: &mut Package, part: &str, rid: &str) {
+    pub(crate) fn drop_rel(pkg: &mut Package, part: &str, rid: &str) {
         if let Ok(d) = pkg.xml_mut(&Package::rels_name(part)) {
             for r in d.elements(d.root).collect::<Vec<_>>() {
                 if d.attr(r, "Id") == Some(rid) {

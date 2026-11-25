@@ -26,13 +26,15 @@ from .ribbon import Ribbon
 from .slidepane import SlidePane, Thumbs
 from .statusbar import StatusBar
 
+def impress_installed():
+    """Whether LibreOffice can read presentations here (Impress, not only Writer)."""
+    import glob
+    return any(glob.glob(os.path.join(d, n)) for d in ("/usr/lib/libreoffice/program", "/opt/libreoffice*/program")
+               for n in ("libsdlo.so", "libsdfiltlo.so"))
+
+
 NATIVE = (".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm")
 IMPORT = (".ppt", ".pps", ".pot", ".odp", ".otp", ".fodp", ".key")
-CT_MAIN = {
-    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
-    "ppsx": "application/vnd.openxmlformats-officedocument.presentationml.slideshow.main+xml",
-    "potx": "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
-}
 # slide commands a master view doesn't offer (PowerPoint greys them out)
 MASTER_BLOCKED = {"new-slide", "new-slide-layout", "duplicate-slides", "delete-slides", "hide-slide", "slide-up", "slide-down",
                   "reuse-slides", "slides-from-outline", "show-start", "show-current", "view-sorter", "view-reading",
@@ -243,6 +245,28 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
 
     def load(self, path):
         ext = os.path.splitext(path)[1].lower()
+        self.status_busy("Opening %s…" % os.path.basename(path))
+        try:
+            self._load(path, ext)
+        finally:
+            self.status_busy(None)
+
+    def load_recovered(self, copy, meta):
+        """Open an AutoRecover copy: unsaved, named for the presentation it came from (S12-01)."""
+        self.load(copy)
+        if self.deck is None:
+            return
+        rec = [p for p in self.app.settings.get("recent", []) if p != os.path.abspath(copy)]
+        self.app.settings["recent"] = rec
+        self.path = None
+        self.disk_stamp = None
+        self.recovered_from = meta.get("path")
+        name = meta.get("name") or "Presentation"
+        self.untitled = name if name.endswith("(Recovered)") else "%s (Recovered)" % name
+        self.deck.modified = True
+        self.update_title()
+
+    def _load(self, path, ext):
         try:
             if ext in IMPORT:
                 deck = self._import_legacy(path)
@@ -270,32 +294,56 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
                 else:
                     self.path = os.path.abspath(path)
         except Exception as e:
-            self.dialogs.message("%s can't open '%s'.\n\n%s" % (APP_NAME, os.path.basename(path), e))
+            from .savefile import plain_error
             if self.deck is None:
+                # the window has a presentation before the message runs its own loop and draws
                 self.new_deck()
+            self.dialogs.message("%s can't open '%s'.\n\n%s" % (APP_NAME, os.path.basename(path), plain_error(e)))
             return
+        from .savefile import stamp
+        self.disk_stamp = (os.path.abspath(path), stamp(path)) if self.path else None
+        emptied, missing = deck.repair()
         self.deck = deck
         self.deck.modified = False
         self.app.add_recent(path)
         self._after_load()
+        if emptied or missing:
+            # a damaged file is said, not opened as if it were whole (S12-08)
+            said = []
+            if emptied:
+                said.append("Slide%s %s couldn't be read and %s blank." % (
+                    "" if len(emptied) == 1 else "s", ", ".join(map(str, emptied)), "is" if len(emptied) == 1 else "are"))
+            if missing:
+                said.append("%d slide%s the file lists %s missing from it and %s left out." % (
+                    missing, "" if missing == 1 else "s", "is" if missing == 1 else "are", "is" if missing == 1 else "are"))
+            GLib.idle_add(lambda: (self.dialogs.info("'%s' is damaged. %s Saving it keeps what could be read." % (
+                os.path.basename(path), " ".join(said))), False)[1])
         if ext in (".ppsx", ".ppsm", ".pps"):
             # a show file starts the show
             GLib.idle_add(lambda: (self.run("show-start"), False)[1])
 
     def _import_legacy(self, path):
         """Old formats go through LibreOffice as a converter only."""
+        import shutil
+        need = ("Opening this older format needs LibreOffice's presentation converter (the package "
+                "libreoffice-impress), which isn't installed.")
+        if not shutil.which("soffice") or not impress_installed():
+            # LibreOffice Writer alone has soffice but can't read presentations (S12-13)
+            raise RuntimeError(need)
         out = tempfile.mkdtemp(prefix="folio-show-")
-        cmd = ["soffice", "--headless", "--norestore", "--convert-to", "pptx:Impress MS PowerPoint 2007 XML",
-               "--outdir", out, path]
         try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
-        except (OSError, subprocess.TimeoutExpired):
-            raise RuntimeError("Opening this older format needs the LibreOffice converter (package libreoffice-impress), "
-                               "which isn't installed.")
-        conv = os.path.join(out, os.path.splitext(os.path.basename(path))[0] + ".pptx")
-        if not os.path.exists(conv):
-            raise RuntimeError("the converter could not read this file")
-        return Presentation.open(conv)
+            cmd = ["soffice", "--headless", "--norestore", "--convert-to", "pptx:Impress MS PowerPoint 2007 XML",
+                   "--outdir", out, path]
+            try:
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
+            except (OSError, subprocess.TimeoutExpired):
+                raise RuntimeError(need)
+            conv = os.path.join(out, os.path.splitext(os.path.basename(path))[0] + ".pptx")
+            if not os.path.exists(conv):
+                raise RuntimeError("LibreOffice couldn't read it: it may be damaged, or not a presentation.")
+            return Presentation.open(conv)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)      # no folder left behind for each try
 
     def _after_load(self):
         self.current = 0
@@ -610,18 +658,36 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             return self.act_save_as()
         return self.save_to(self.path)
 
-    def save_to(self, path):
+    def save_to(self, path, kind=None):
+        """Write the presentation to path as the kind its name says (S12-03), protected when it has
+        a password (S12-05); False, having said why, when it couldn't be saved (S12-06)."""
+        from . import savefile
         self.canvas.leave_text()
+        path = os.path.abspath(path)
+        if not self._overwrite_ok(path):
+            return False
+        kind = kind or savefile.kind_of(path)
+        self.status_busy("Saving…")
         try:
             if self.deck.pres_attr("embedTrueTypeFonts") in ("1", "true"):
                 self.embed_fonts_now()
+            data, dropped = savefile.package_as(bytes(self.deck.to_bytes()), kind)
             if getattr(self, "password", None):
-                self.write_protected(path)
-            else:
-                self.deck.save(path)
+                from . import crypt
+                data = crypt.encrypt(data, self.password)
+            savefile.write_atomic(path, data)
         except Exception as e:
-            self.dialogs.message("%s couldn't save '%s'.\n\n%s" % (APP_NAME, os.path.basename(path), e))
+            self.status_busy(None)
+            self.dialogs.message("%s couldn't save '%s'.\n\n%s" % (APP_NAME, os.path.basename(path), savefile.plain_error(e)))
             return False
+        self.status_busy(None)
+        self.deck.modified = False
+        self.disk_stamp = (path, savefile.stamp(path))
+        self.app.recovery.saved(self)
+        self.recovered_from = None
+        if dropped:
+            self.dialogs.info("The macros in this presentation were left out: a .%s file can't hold them. "
+                              "Save it as a PowerPoint Macro-Enabled Presentation (.pptm) to keep them." % kind)
         self.path = os.path.abspath(path)
         self.imported_from = None
         self.app.add_recent(self.path)
@@ -630,6 +696,41 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             t.path, t.imported_from = self.path, None
             t.update_title()
         return True
+
+    def status_busy(self, text):
+        """While a long open or save runs: its name in the status bar and a busy pointer (S12-11)."""
+        if getattr(self, "status", None) is None:
+            return
+        gw = self.get_window()
+        if text:
+            self.status.slide_label.set_text(text)
+            if gw is not None:
+                gw.set_cursor(Gdk.Cursor.new_from_name(gw.get_display(), "wait"))
+            # draw it now: the work that follows holds the window until it is done
+            for _ in range(50 if self.get_mapped() and getattr(self, "deck", None) is not None else 0):
+                if not Gtk.events_pending():
+                    break
+                Gtk.main_iteration_do(False)
+        else:
+            if gw is not None:
+                gw.set_cursor(None)
+            if getattr(self, "deck", None) is not None:
+                self.status.set_slide(getattr(self, "current", 0) or 0, self.deck.slide_count())
+
+    def _overwrite_ok(self, path):
+        """Saving over this window's own file after another program saved it: ask first (S12-07)."""
+        from . import savefile
+        was = getattr(self, "disk_stamp", None)
+        if not was or was[0] != path or was[1] is None:
+            return True
+        now = savefile.stamp(path)
+        if now is None or now == was[1]:
+            return True
+        ans = self.dialogs.changed_on_disk(os.path.basename(path))
+        if ans == "copy":
+            self.act_save_as()
+            return False
+        return ans == "overwrite"
 
     def twins(self):
         """The other windows on this presentation (View > New Window)."""
@@ -659,36 +760,41 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         f.add_pattern("*." + kind)
         d.add_filter(f)
         base = self.title_text()
+        rec = getattr(self, "recovered_from", None)
+        if rec and not self.path:
+            # a recovered copy offers its own name and folder back
+            base = os.path.splitext(os.path.basename(rec))[0]
         d.set_current_name(base + "." + kind)
         if self.path:
             d.set_current_folder(os.path.dirname(self.path))
+        elif rec and os.path.isdir(os.path.dirname(rec)):
+            d.set_current_folder(os.path.dirname(rec))
         r = d.run()
         p = d.get_filename() if r == Gtk.ResponseType.ACCEPT else None
         d.destroy()
         if not p:
             return False
-        if not p.lower().endswith("." + kind):
+        if kind != "pdf" and os.path.splitext(p)[1].lower() in NATIVE:
+            kind = os.path.splitext(p)[1].lower()[1:]       # a name typed as .pptm stays .pptm
+        elif not p.lower().endswith("." + kind):
             p += "." + kind
         if kind == "pdf":
-            self.deck.export_pdf(p)
+            from . import savefile
+            try:
+                # cairo only says "write error": find out why first, to say it plainly
+                folder = os.path.dirname(os.path.abspath(p))
+                if not os.path.isdir(folder):
+                    raise FileNotFoundError(2, "No such file or directory", folder)
+                if not os.access(folder, os.W_OK):
+                    raise PermissionError(13, "Permission denied", folder)
+                self.deck.export_pdf(p)
+            except Exception as e:
+                # a missing folder or a full disk is said, not left in the terminal (S12-06)
+                self.dialogs.message("%s couldn't save '%s'.\n\n%s" % (APP_NAME, os.path.basename(p), savefile.plain_error(e)))
+                return False
             return True
-        if kind in ("ppsx", "potx"):
-            # the same package with the main part's content type changed
-            data = bytes(self.deck.to_bytes())
-            import io
-            import zipfile
-            src = zipfile.ZipFile(io.BytesIO(data))
-            out = io.BytesIO()
-            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-                for it in src.infolist():
-                    b = src.read(it.filename)
-                    if it.filename == "[Content_Types].xml":
-                        b = b.replace(CT_MAIN["pptx"].encode(), CT_MAIN[kind].encode())
-                    z.writestr(it, b)
-            with open(p, "wb") as fh:
-                fh.write(out.getvalue())
-            return True
-        return self.save_to(p)
+        # .ppsx and .potx are the same package with the main part's type changed (save_to does it)
+        return self.save_to(p, kind)
 
     def act_send_attachment(self, pdf=""):
         """File > Share > Email: a new message in the mail app with this presentation (or a PDF of it) attached."""
@@ -704,7 +810,8 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             else:
                 self.canvas.leave_text()
                 was = self.deck.modified
-                self.deck.save(path)
+                from . import savefile
+                savefile.write_atomic(path, savefile.package_as(bytes(self.deck.to_bytes()), "pptx")[0])
                 self.deck.modified = was
         except Exception as e:
             self.dialogs.message("%s couldn't make the attachment.\n\n%s" % (APP_NAME, e))
@@ -769,7 +876,9 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         dest = os.path.join(where, name + " Package")
         base = os.path.dirname(self.path) if self.path else where
         try:
-            deck, copied, missing = packfolder.package(bytes(self.deck.to_bytes()), name + ".pptx", dest, base)
+            from . import savefile
+            deck, copied, missing = packfolder.package(savefile.package_as(bytes(self.deck.to_bytes()), "pptx")[0],
+                                                       name + ".pptx", dest, base)
         except OSError as e:
             self.dialogs.message("The package couldn't be written.\n%s" % e)
             return None
@@ -1181,9 +1290,24 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             names = [s["name"] for s in (c.shape(x) for x in c.sel) if s]
             self.remember_clip(self.clip, ", ".join(names)[:60] or "Objects")
         elif self.view == "sorter" or self.pane.area.has_focus():
-            self.clip = {"kind": "slides", "idx": self._selected_slides(), "deck": id(self.deck)}
+            idx = self._selected_slides()
+            # the slides themselves come along, so they paste into another presentation, or after
+            # they were cut (S12-04)
+            self.canvas.leave_text()
+            self._save_notes()
+            titles = []
+            for i in idx:
+                for _sid, ph, paras in self.deck.slide_text(i):
+                    if ph in ("title", "ctrTitle") and "".join(paras).strip():
+                        titles.append(" ".join(paras).strip())
+                        break
+            text = "\n".join(titles) or "Slide " + ", ".join(str(i + 1) for i in idx)
+            self.clip = {"kind": "slides", "idx": idx, "deck": id(self.deck), "data": bytes(self.deck.to_bytes()),
+                         "text": text}
             self.app.clip = self.clip
-            self.remember_clip(self.clip, "Slide " + ", ".join(str(i + 1) for i in self.clip["idx"]))
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(text, -1)
+            self._clip_text = text
+            self.remember_clip(self.clip, "Slide " + ", ".join(str(i + 1) for i in idx))
 
     def act_cut(self):
         c = self.canvas
@@ -1197,6 +1321,8 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             self.act_delete()
         elif self.pane.area.has_focus() or self.view == "sorter":
             self.act_copy()
+            if self.clip and self.clip.get("kind") == "slides":
+                self.clip["cut"] = True
             self.act_delete_slides()
 
     def act_paste(self, mode=None):
@@ -1208,13 +1334,24 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             if text:
                 c.type_text(text.replace("\r\n", "\n").replace("\r", "\n"))
             return
-        if clip and clip.get("kind") == "slides" and clip.get("deck") == id(self.deck) and \
-                (self.pane.area.has_focus() or self.view == "sorter"):
-            i = self.deck.duplicate_slides(clip["idx"])
-            at = self.current + 1
-            self.deck.move_slides(list(range(i, i + len(clip["idx"]))), at)
+        ours = clip and clip.get("kind") == "slides" and (text is None or text == clip.get("text"))
+        if ours and (self.pane.area.has_focus() or self.view == "sorter" or (not c.sel and clip.get("deck") != id(self.deck))):
+            n = self.deck.slide_count()
+            if clip.get("data") is None and (clip.get("deck") != id(self.deck) or clip.get("cut")):
+                return
+            if clip.get("deck") == id(self.deck) and not clip.get("cut"):
+                i = self.deck.duplicate_slides(clip["idx"])
+                at = self.current + 1
+                self.deck.move_slides(list(range(i, i + len(clip["idx"]))), at)
+            else:
+                # from another presentation, or cut: the slides as they were copied, on this
+                # presentation's layouts of the same name (PowerPoint's "Use Destination Theme")
+                at = self.deck.reuse_slides_from(clip["data"], clip["idx"], self.current if n else None, self._layout_for_new())
             self.changed(structure=True)
+            self.thumbs.forget()
             self.go_slide(at)
+            self.pane.selected = list(range(at, at + len(clip["idx"])))
+            self.pane.queue() if hasattr(self.pane, "queue") else None
             return
         if clip and clip.get("kind") == "shapes" and (text is None or text == getattr(self, "_clip_text", None)):
             same = clip.get("slide") == self.current and clip.get("deck") == id(self.deck)
@@ -1827,6 +1964,10 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
             self._alt_alone = False
             self.keytips.start()
             return True
+        # input methods watch key releases too
+        if self.canvas.edit is not None and isinstance(ev, Gdk.EventKey) and self.canvas.area.has_focus() \
+                and self.canvas.im.filter_keypress(ev):
+            return True
         return False
 
     def on_key(self, w, ev):
@@ -1882,6 +2023,15 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
                 self.run("close")
                 return True
             if k in cmds and cmds[k]:
+                if in_entry and k in ("z", "y") and focus is self.notes and cmds[k] in ("undo", "redo"):
+                    # the notes take part in Undo like everything else (S12-14); the notes typed
+                    # so far become a step first
+                    self._save_notes()
+                    self.run(cmds[k])
+                    self.notes.grab_focus()
+                    end = self.notes.get_buffer().get_end_iter()
+                    self.notes.get_buffer().place_cursor(end)
+                    return True
                 if in_entry and k in ("z", "y"):
                     return False
                 self.run(cmds[k])

@@ -554,6 +554,13 @@ class ShowCommands:
             hist = self.app.clip_history = []
         hist.insert(0, (dict(clip), label))
         del hist[24:]
+        # copied slides carry the whole presentation: only the newest few keep it
+        kept = 0
+        for old, _l in hist:
+            if old.get("kind") == "slides" and old.get("data") is not None:
+                kept += 1
+                if kept > 3:
+                    old.pop("data", None)
         p = getattr(self, "clipboard_pane", None)
         if p is not None:
             p.refresh()

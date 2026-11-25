@@ -78,6 +78,45 @@ impl Deck {
         v
     }
 
+    /// Put right what a damaged file would otherwise carry on silently (S12-08), once, after
+    /// opening: a slide whose XML can't be read becomes an empty slide on its layout, and a slide
+    /// the list names but the file doesn't hold leaves the list. Returns (the slides emptied,
+    /// 1-based, and how many slides were missing). Not an undo step: it is how the file opened.
+    pub fn repair(&mut self) -> (Vec<usize>, usize) {
+        let pres = self.pres.clone();
+        let named = match self.pkg.xml(&pres) {
+            Ok(dom) => dom.child(dom.root, "p:sldIdLst").map_or(0, |lst| dom.children_named(lst, "p:sldId").count()),
+            Err(_) => 0,
+        };
+        let missing = named.saturating_sub(self.slides.len());
+        if missing > 0 {
+            let _ = self.write_slide_list();
+            // and the links to them go, so other programs find nothing to repair
+            for r in self.pkg.rels(&pres) {
+                if r.kind.ends_with("/slide") && !self.pkg.has(&Package::resolve(&pres, &r.target)) {
+                    Deck::drop_rel(&mut self.pkg, &pres, &r.id);
+                }
+            }
+        }
+        let mut emptied = Vec::new();
+        for (i, part) in self.slides.clone().iter().enumerate() {
+            if self.pkg.xml(part).is_ok() {
+                continue;
+            }
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld {NS_DECL}><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"#);
+            if let Ok(doc) = XmlDoc::parse(xml.as_bytes()) {
+                self.pkg.put_xml(part, doc);
+                emptied.push(i + 1);
+            }
+        }
+        if missing > 0 || !emptied.is_empty() {
+            self.version += 1;
+        }
+        (emptied, missing)
+    }
+
     pub(crate) fn write_slide_list(&mut self) -> Result<(), String> {
         let pres = self.pres.clone();
         let rels = self.pkg.rels(&pres);
@@ -480,7 +519,12 @@ impl Deck {
     pub fn add_picture(&mut self, i: usize, data: Vec<u8>, ext: &str, name: &str, x: f64, y: f64, w: f64, h: f64) -> Result<u32, String> {
         let part = self.slide_part(i)?;
         let ext = ext.to_lowercase().replace("jpg", "jpeg");
-        let media = self.free_name("ppt/media", "image", &ext);
+        // the same picture again is stored once, as PowerPoint does (S12-11)
+        let same = self.pkg.part_names().into_iter().find(|n| {
+            n.starts_with("ppt/media/") && n.ends_with(&format!(".{ext}")) && self.pkg.raw(n).map_or(false, |r| r == data.as_slice())
+        });
+        let fresh = same.is_none();
+        let media = same.unwrap_or_else(|| self.free_name("ppt/media", "image", &ext));
         let ctype = match ext.as_str() {
             "png" => "image/png",
             "jpeg" => "image/jpeg",
@@ -493,7 +537,9 @@ impl Deck {
             _ => "application/octet-stream",
         };
         self.begin("Insert Picture", &[part.clone(), Package::rels_name(&part), CT.to_string(), media.clone()]);
-        self.pkg.put_raw(&media, data);
+        if fresh {
+            self.pkg.put_raw(&media, data);
+        }
         self.pkg.ensure_default(&ext, ctype);
         let rid = self.pkg.add_rel(&part, &format!("{RT}image"), &rel_path(&part, &media));
         let d = self.pkg.xml_mut(&part).map_err(|e| e.to_string())?;

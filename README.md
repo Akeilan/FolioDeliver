@@ -27,6 +27,21 @@ PDF, pictures and video.
   files it links to in one folder, with the links pointing at the copies, so the lot can be carried
   on a stick and opened on another computer.
 
+## What's new in 0.12
+
+- AutoRecover: unsaved work is copied every 10 minutes (Options > Save) and offered back after a crash.
+- Text pasted from other programs no longer makes files PowerPoint calls damaged.
+- A deck started from a .potx template, or a .pptm saved as .pptx, is saved as a real .pptx; the
+  macros are left out, and Show says so.
+- Slides cut or copied in one presentation paste into another.
+- Save As .ppsx and .potx keep the password; a save that fails says why; saving over a file another
+  program changed asks first.
+- A damaged slide is named when the file opens, and the saved file is whole again.
+- Shapes drag from anywhere inside them. Japanese, Chinese and Korean input methods work on slides.
+- A picture inserted twice is stored once; long saves show "Saving…".
+- Plain messages for damaged files; opening a .ppt without LibreOffice Impress names the package.
+- Ctrl+Z and Ctrl+Y work in the Notes pane.
+
 ## Layout
 
 | Folder | What's in it |

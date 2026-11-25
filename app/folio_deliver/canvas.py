@@ -101,7 +101,10 @@ class SlideCanvas(Gtk.Box):
         self.area.connect("focus-out-event", lambda *_: (self.im.focus_out(), False)[1])
         self.scroller.add(self.area)
         self.pack_start(self.scroller, True, True, 0)
-        self.im = Gtk.IMContextSimple()
+        # the desktop's input method (IBus, Fcitx: Japanese, Chinese, Korean...), with its own
+        # window for the text being composed; the simple one when there is none (S12-10)
+        self.im = Gtk.IMMulticontext()
+        self.im.set_use_preedit(False)
         self.im.connect("commit", lambda _im, s: self.type_text(s))
         self.fit = True
         self.zoom = 1.0                  # 100% = 96 px per inch
@@ -215,6 +218,8 @@ class SlideCanvas(Gtk.Box):
         return None
 
     def on_draw(self, area, cr):
+        if self.deck is None:
+            return False            # a window drawn while its first file is still opening
         self.compute_scale()
         pct = self.zoom_percent()
         if self.fit and getattr(self, "_shown_pct", None) != pct:
@@ -881,7 +886,22 @@ class SlideCanvas(Gtk.Box):
         self.queue()
         self.win.selection_changed()
 
+    def _im_spot(self):
+        """Tell the input method where the caret is, so its window opens beside it."""
+        e = self.edit
+        if e is None:
+            return
+        try:
+            x, y, h, _r = self.deck.caret(self.index, e.id, *e.caret)
+        except Exception:
+            return
+        X, Y = self.to_px(x, y)
+        r = Gdk.Rectangle()
+        r.x, r.y, r.width, r.height = int(X), int(Y), 1, max(1, int(h * self.scale))
+        self.im.set_cursor_location(r)
+
     def _start_blink(self):
+        self._im_spot()
         self.blink_on = True
         if self._blink:
             GLib.source_remove(self._blink)
@@ -1036,8 +1056,10 @@ class SlideCanvas(Gtk.Box):
             else:
                 self.select(self.sel + [s["id"]])
             return True
-        # a click in a text placeholder or text box puts the caret there (PowerPoint)
-        textish = s["has_text"] and (s["ph"] is not None or s["geom"] == "rect" and s["kind"] == "sp")
+        # a click in a text placeholder or text box puts the caret there (PowerPoint); any other
+        # shape moves when dragged from anywhere inside it, and a click on it once selected
+        # goes into its text (S12-09)
+        textish = s["has_text"] and (s["ph"] is not None or s.get("txbox", False))
         if textish and not self.on_edge(s, sx, sy) and s["id"] not in self.sel:
             pos = self.deck.hit(self.index, s["id"], sx, sy)
             self.start_text(s["id"], pos)
@@ -1048,10 +1070,13 @@ class SlideCanvas(Gtk.Box):
             self.start_text(s["id"], pos)
             self.drag = {"kind": "textsel", "start": (ev.x, ev.y)}
             return True
+        was = s["id"] in self.sel and len(self.sel) == 1
         self.leave_text()
         if s["id"] not in self.sel:
             self.select([s["id"]])
         self._begin_drag("move", ev, s, None)
+        if was and s["has_text"] and s["kind"] == "sp" and not self.on_edge(s, sx, sy):
+            self.drag["text_at"] = self.deck.hit(self.index, s["id"], sx, sy)
         return True
 
     def _begin_drag(self, kind, ev, s, handle):
@@ -1224,6 +1249,8 @@ class SlideCanvas(Gtk.Box):
             self.queue()
             return True
         if not d["moved"]:
+            if d["kind"] == "move" and d.get("text_at") is not None:
+                self.start_text(d["shape"]["id"], d["text_at"])
             self.queue()
             return True
         boxes = [(sid, x, y, w, h, r) for sid, (x, y, w, h, r) in d["boxes"].items()]
@@ -1319,6 +1346,12 @@ class SlideCanvas(Gtk.Box):
         self._start_blink()
 
     def type_text(self, s):
+        # text from other programs can carry control characters a slide can't hold (S12-02):
+        # a vertical tab is a line break (as Office copies it), the rest are left out
+        s = "".join("\n" if ch == "\x0b" else ch for ch in s
+                    if ch in "\t\n\x0b" or (ch >= " " and ch not in "\x7f\ufffe\uffff"))
+        if not s:
+            return
         if self.edit is None:
             if len(self.sel) == 1 and s.isprintable():
                 sh = self.shape(self.sel[0])
@@ -1603,6 +1636,10 @@ class SlideCanvas(Gtk.Box):
             self.win.act_ink("off")
             return True
         e = self.edit
+        if e is not None and isinstance(ev, Gdk.EventKey) and not ctrl and not alt and self.im.filter_keypress(ev):
+            # the input method takes the key first (while it composes, Enter, Backspace and the
+            # arrows are its own)
+            return True
         if e is not None:
             moves = {"Left": "wleft" if ctrl else "left", "Right": "wright" if ctrl else "right",
                      "Up": "pstart" if ctrl else "up", "Down": "pend" if ctrl else "down",

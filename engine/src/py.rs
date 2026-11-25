@@ -38,6 +38,7 @@ fn info_dict<'py>(py: Python<'py>, s: &ShapeInfo) -> PyResult<Bound<'py, PyDict>
     d.set_item("group", s.group)?;
     d.set_item("geom", &s.geom)?;
     d.set_item("descr", &s.descr)?;
+    d.set_item("txbox", s.txbox)?;
     Ok(d)
 }
 
@@ -750,6 +751,14 @@ impl PyPresentation {
         self.deck.reuse_slides(&b, &which, after, fallback).map_err(err)
     }
 
+    /// The same from a presentation's bytes (slides copied in another window, S12-04).
+    #[pyo3(signature = (data, which, after, fallback))]
+    fn reuse_slides_from(&mut self, data: &[u8], which: Vec<usize>, after: Option<usize>, fallback: &str) -> PyResult<usize> {
+        let r = self.deck.reuse_slides(data, &which, after, fallback).map_err(err);
+        self.painter.forget_pictures();
+        r
+    }
+
     fn replace_picture(&mut self, i: usize, id: u32, data: Vec<u8>, ext: &str) -> PyResult<()> {
         self.deck.replace_picture(i, id, data, ext).map_err(err)
     }
@@ -1114,6 +1123,13 @@ impl PyPresentation {
             }
         }
         String::new()
+    }
+
+    /// After opening: damaged slides emptied (1-based) and how many slides were missing (S12-08).
+    fn repair(&mut self) -> (Vec<usize>, usize) {
+        let r = self.deck.repair();
+        self.painter.forget_pictures();
+        r
     }
 
     /// All text on a slide, in drawing order (for the outline and search).

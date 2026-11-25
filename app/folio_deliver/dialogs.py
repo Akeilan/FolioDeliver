@@ -41,6 +41,39 @@ class Dialogs:
         d.destroy()
         return {1: "save", 2: "discard"}.get(r, "cancel")
 
+    def recovered(self, items):
+        """[(name, time)] an earlier run left unsaved: 'open' | 'discard' | 'later'."""
+        import datetime
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.QUESTION,
+                              text="Folio Show closed before %s saved." % ("this presentation was" if len(items) == 1
+                                                                           else "these presentations were"))
+        lines = ["%s — kept %s" % (n, datetime.datetime.fromtimestamp(t).strftime("%-d %b, %H:%M")) for n, t in items]
+        d.format_secondary_text("\n".join(lines[:10]) + ("\n…" if len(lines) > 10 else "") +
+                                "\n\nOpen the copies AutoRecover kept? They open unsaved, to save where you like.")
+        d.set_title(APP_NAME)
+        d.add_button("Not Now", 3)
+        d.add_button("Delete Them", 2)
+        d.add_button("Open", 1)
+        d.set_default_response(1)
+        r = d.run()
+        d.destroy()
+        return {1: "open", 2: "discard"}.get(r, "later")
+
+    def changed_on_disk(self, name):
+        """The file was saved by another program since it was opened (S12-07):
+        'overwrite' | 'copy' | 'cancel'."""
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.WARNING,
+                              text="'%s' was changed by another program since you opened it." % name)
+        d.format_secondary_text("Saving now replaces those changes. Save a copy under another name to keep both.")
+        d.set_title(APP_NAME)
+        d.add_button("Cancel", 3)
+        d.add_button("Save a Copy…", 2)
+        d.add_button("Replace Their Changes", 1)
+        d.set_default_response(2)
+        r = d.run()
+        d.destroy()
+        return {1: "overwrite", 2: "copy"}.get(r, "cancel")
+
     def ask_password(self, title, label):
         """A password (typed hidden), or None."""
         d = self._dialog(title)

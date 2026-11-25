@@ -85,6 +85,9 @@ pub struct ShapeInfo {
     pub group: u32,
     pub geom: String,
     pub descr: String,
+    /// A text box (cNvSpPr txBox="1"): a drag inside selects its text; inside any other shape a
+    /// drag moves the shape (S12-09).
+    pub txbox: bool,
 }
 
 /// How an animation shows a shape at one moment of a slide show.
@@ -611,6 +614,7 @@ impl Painter {
                 ph: ph.map(|p| p.kind), has_text, empty: empty || (!has_text && scene::ph_of(dom, n).is_some()), group, geom,
                 descr: dom.elements(n).find(|&c| dom.name(c).starts_with("p:nv")).and_then(|nv| dom.child(nv, "p:cNvPr"))
                     .and_then(|c| dom.attr(c, "descr")).unwrap_or("").to_string(),
+                txbox: path(dom, n, &["p:nvSpPr", "p:cNvSpPr"]).and_then(|c| dom.attr(c, "txBox")).map_or(false, |v| v == "1" || v == "true"),
             });
         }
         out

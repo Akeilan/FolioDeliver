@@ -45,6 +45,8 @@ class DeliverApp(Gtk.Application):
         self.windows = []
         self.settings = self._load_settings()
         self._untitled = 0
+        from .recovery import Recovery
+        self.recovery = Recovery(self)
 
     # ------------------------------------------------------------ settings
     def _load_settings(self):
@@ -163,7 +165,16 @@ class DeliverApp(Gtk.Application):
             self.windows[-1].present()
             return
         win = self.new_window()
+        self._start_recovery(win)
         self._maybe_script(win)
+
+    def _start_recovery(self, win):
+        """AutoRecover: copies kept from now on, and what an earlier run left offered back (S12-01)."""
+        if getattr(self, "_recovery_started", False):
+            return
+        self._recovery_started = True
+        self.recovery.start()
+        GLib.timeout_add(600, lambda: (self.recovery.offer(win) if win in self.windows else None, False)[1])
 
     def _maybe_script(self, win):
         script = os.environ.get("FOLIO_TEST_SCRIPT")
@@ -188,6 +199,7 @@ class DeliverApp(Gtk.Application):
             if path:
                 win = self.open_path(path)
         if win is not None:
+            self._start_recovery(win)
             if getattr(self, "show_on_open", False):
                 GLib.idle_add(lambda: (win.run("show-start"), False)[1])
             self._maybe_script(win)
@@ -217,6 +229,7 @@ class DeliverApp(Gtk.Application):
             self.save_settings()
         except OSError:
             pass
+        self.recovery.forget(win)
         if win in self.windows:
             self.windows.remove(win)
         if not self.windows:
