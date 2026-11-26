@@ -1,11 +1,17 @@
 #!/bin/bash
 # Folio Show (formerly Folio Deliver) release checks: engine tests, UI tests (source), the rename
-# test, debs (folio-show + transitional folio-deliver), the upgrade from folio-deliver 0.8.0 and the
+# test, debs (folio-show + transitional folio-deliver), the upgrade from the published Show and the
 # installed tests on jammy, nolo and noble, Wayland on noble.   XD=<display> release_show.sh
 set -u
-R=/home/claude/folio-deliver
+R=$(cd "$(dirname "$0")/.." && pwd)
 V=$(sed -n 's/^Version: //p' $R/packaging/DEBIAN/control)
-OLDDEB=${OLDDEB:-/home/claude/out/folio-deliver_0.8.0_amd64.deb}
+# the upgrade is checked from the Show people have now: the one in the published package source
+if [ -z "${OLDDEB:-}" ]; then
+  PUB=$(mktemp -d)
+  git clone -q --depth 1 --branch gh-pages https://github.com/Akeilan/FolioStudio "$PUB" >/dev/null 2>&1
+  OLDDEB=$(ls "$PUB"/folio-show_*.deb 2>/dev/null | head -1)
+  [ -n "$OLDDEB" ] || { echo "FAIL no published Folio Show to upgrade from"; exit 1; }
+fi
 /home/claude/mounts.sh
 cp $R/engine/out/deliver_core.so /srv/jammy/tmp/deliver_core.so
 rsync -a --delete --exclude target --exclude .git $R/ /srv/jammy/src/fdl/
@@ -28,11 +34,11 @@ bash /home/claude/folio-suite/tools/compare-release.sh folio-show /home/claude/f
   echo "X4-05 FAILED: this candidate shows less than the app it replaces"
 for m in /srv/jammy /srv/nolo /srv/noble; do
   cp /home/claude/out/folio-show_${V}_amd64.deb /home/claude/out/folio-deliver_${V}_all.deb $OLDDEB $m/tmp/
-  echo "== upgrade from Folio Deliver 0.8.0 in $m"
+  echo "== upgrade from $(basename $OLDDEB) in $m"
   flock /home/claude/.dpkg.lock chroot $m bash -c "export DEBIAN_FRONTEND=noninteractive
     dpkg --force-depends -P folio-show folio-deliver >/dev/null 2>&1
     dpkg -i /tmp/$(basename $OLDDEB) >/dev/null 2>&1 || apt-get -y -f install >/dev/null 2>&1
-    echo \"before: \$(dpkg-query -W -f='\${Package} \${Version}' folio-deliver)\"
+    echo \"before: \$(dpkg-query -W -f='\${Package} \${Version} ' folio-show folio-deliver 2>/dev/null)\"
     apt-get install -y -q /tmp/folio-show_${V}_amd64.deb /tmp/folio-deliver_${V}_all.deb >/tmp/up.log 2>&1 || { echo FAIL upgrade; tail -5 /tmp/up.log; }
     echo \"after: \$(dpkg-query -W -f='\${Package} \${Version} \${Status}\n' folio-show folio-deliver | tr '\n' ';')\"
     [ -d /usr/lib/folio-deliver ] && echo 'FAIL /usr/lib/folio-deliver left behind'
