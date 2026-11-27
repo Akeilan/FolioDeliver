@@ -787,7 +787,7 @@ class ShowWindow(Gtk.Window):
             st.end()
         else:
             if "://" not in t and os.path.exists(os.path.expanduser(t)):
-                t = "file://" + os.path.abspath(os.path.expanduser(t))
+                t = GLib.filename_to_uri(os.path.abspath(os.path.expanduser(t)), None)
             try:
                 Gtk.show_uri_on_window(self, t, Gdk.CURRENT_TIME)
             except Exception:

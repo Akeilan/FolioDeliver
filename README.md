@@ -27,6 +27,10 @@ PDF, pictures and video.
   files it links to in one folder, with the links pointing at the copies, so the lot can be carried
   on a stick and opened on another computer.
 
+## What's new in 0.13
+
+- Runs on Windows as part of Folio Studio's MSI: mail through the default mail program, screen recording through ffmpeg's desktop capture, light or dark as Windows is set.
+
 ## What's new in 0.12
 
 - AutoRecover: unsaved work is copied every 10 minutes (Options > Save) and offered back after a crash.

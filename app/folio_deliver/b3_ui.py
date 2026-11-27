@@ -120,7 +120,7 @@ def run_program(parent, path):
         return
     try:
         import shlex
-        subprocess.Popen(shlex.split(path), start_new_session=True)
+        subprocess.Popen(shlex.split(path, posix=os.name != "nt"), **({} if os.name == "nt" else {"start_new_session": True}))
     except Exception as e:
         parent.st.win.dialogs.message("%s couldn't start it.\n\n%s" % (APP_NAME, e)) if hasattr(parent, "st") else None
 

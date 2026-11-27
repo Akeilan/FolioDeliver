@@ -14,6 +14,9 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 
 ICON_DIRS = ["/usr/share/icons/Adwaita/scalable", "/usr/share/icons/Adwaita/symbolic",
              "/usr/share/icons/hicolor/scalable", "/usr/share/icons/Yaru/scalable"]
+if os.environ.get("FOLIO_ROOT"):      # Windows: the icon themes that ship with the suite
+    ICON_DIRS = [os.path.join(os.environ["FOLIO_ROOT"], "share", "icons", t) for t in
+                 ("Adwaita/scalable", "Adwaita/symbolic", "hicolor/scalable")] + ICON_DIRS
 CATEGORY_NAMES = {"actions": "Actions", "apps": "Apps", "categories": "Categories", "devices": "Devices",
                   "emblems": "Emblems", "emotes": "Faces", "mimetypes": "Files", "places": "Places",
                   "status": "Status", "ui": "Interface"}
@@ -851,7 +854,8 @@ class MediaCommands:
     # ------------------------------------------------------------ screen recording
     def act_screen_recording(self):
         ff = shutil.which("ffmpeg")
-        if os.environ.get("XDG_SESSION_TYPE") == "wayland" or not os.environ.get("DISPLAY"):
+        import sys
+        if sys.platform != "win32" and (os.environ.get("XDG_SESSION_TYPE") == "wayland" or not os.environ.get("DISPLAY")):
             self.dialogs.info("Screen recording works on an X11 desktop session; this one is Wayland.")
             return None
         if ff is None:
@@ -863,12 +867,18 @@ class MediaCommands:
         root = Gdk.get_default_root_window()
         w, h = root.get_width() // 2 * 2, root.get_height() // 2 * 2
         path = os.path.join(tempfile.mkdtemp(prefix="folio-screen-"), "Screen Recording.mp4")
-        cmd = [shutil.which("ffmpeg"), "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "%dx%d" % (w, h),
-               "-framerate", "15", "-i", os.environ.get("DISPLAY", ":0")]
+        import sys
+        if sys.platform == "win32":
+            # Windows: the whole desktop through GDI
+            cmd = [shutil.which("ffmpeg"), "-y", "-loglevel", "error", "-f", "gdigrab", "-framerate", "15",
+                   "-i", "desktop", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]
+        else:
+            cmd = [shutil.which("ffmpeg"), "-y", "-loglevel", "error", "-f", "x11grab", "-video_size", "%dx%d" % (w, h),
+                   "-framerate", "15", "-i", os.environ.get("DISPLAY", ":0")]
         if seconds:
             cmd += ["-t", str(seconds)]
         cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", path]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, preexec_fn=_die_with_parent)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, **_with_parent())
         bar = Gtk.Window(title="Screen Recording")
         bar.set_keep_above(True)
         b = Gtk.Button(label="■ Stop Recording")
@@ -897,6 +907,13 @@ class MediaCommands:
         b.connect("clicked", stop)
         self.stop_screen_recording = stop
         return path
+
+
+def _with_parent():
+    """How a child is started so it stops with Show: on Linux the kernel ends it (below). Windows
+    has no such call for a plain child process."""
+    import sys
+    return {} if sys.platform == "win32" else {"preexec_fn": _die_with_parent}
 
 
 def _die_with_parent():

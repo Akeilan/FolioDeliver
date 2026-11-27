@@ -7,6 +7,7 @@ import tempfile
 
 from gi.repository import Gdk, GLib, Gtk, Pango
 
+from . import folio_os
 from . import APP_NAME, VERSION, icons
 from .backstage import Backstage
 from .canvas import SlideCanvas
@@ -29,6 +30,10 @@ from .statusbar import StatusBar
 def impress_installed():
     """Whether LibreOffice can read presentations here (Impress, not only Writer)."""
     import glob
+    from . import folio_os
+    if folio_os.WINDOWS:
+        office = folio_os.office_program()
+        return bool(office) and os.path.exists(os.path.join(os.path.dirname(office), "simpress.exe"))
     return any(glob.glob(os.path.join(d, n)) for d in ("/usr/lib/libreoffice/program", "/opt/libreoffice*/program")
                for n in ("libsdlo.so", "libsdfiltlo.so"))
 
@@ -327,12 +332,13 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         import shutil
         need = ("Opening this older format needs LibreOffice's presentation converter (the package "
                 "libreoffice-impress), which isn't installed.")
-        if not shutil.which("soffice") or not impress_installed():
+        from . import folio_os
+        if not folio_os.office_program() or not impress_installed():
             # LibreOffice Writer alone has soffice but can't read presentations (S12-13)
             raise RuntimeError(need)
         out = tempfile.mkdtemp(prefix="folio-show-")
         try:
-            cmd = ["soffice", "--headless", "--norestore", "--convert-to", "pptx:Impress MS PowerPoint 2007 XML",
+            cmd = [folio_os.office_program(), "--headless", "--norestore", "--convert-to", "pptx:Impress MS PowerPoint 2007 XML",
                    "--outdir", out, path]
             try:
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
@@ -819,10 +825,10 @@ class DeliverWindow(Backlog3Commands, EquationCommands, InkCommands, MediaComman
         post = shutil.which("folio-post")
         if post:
             subprocess.Popen([post, "--attach", path])
-        elif shutil.which("xdg-email"):
-            subprocess.Popen(["xdg-email", "--subject", name, "--attach", path])
+        elif folio_os.can_mail() and folio_os.mail_file(path, name):
+            pass
         else:
-            self.dialogs.info("Sending needs a mail app: install Folio Post.")
+            self.dialogs.info("Sending needs a mail program set up on this computer.")
             return None
         return path
 

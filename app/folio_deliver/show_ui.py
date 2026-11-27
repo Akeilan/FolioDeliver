@@ -199,7 +199,7 @@ def make_video(win, path, w, h, seconds, use_timings, fps=30, progress=None):
                "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path]
     else:
         raise RuntimeError("Creating a video needs Folio Reel (package folio-reel).")
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, preexec_fn=_die_with_parent)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, **_with_parent())
     sw, sh = deck.size()
     scale = min(w / sw, h / sh)
     ox, oy = (w - sw * scale) / 2, (h - sh * scale) / 2
@@ -325,7 +325,8 @@ def thesaurus(lang="en_US"):
     if lang in _TH:
         return _TH[lang]
     th = None
-    for d in ("/usr/share/mythes", "/usr/share/myspell/dicts", "/usr/share/hunspell"):
+    from . import folio_os
+    for d in folio_os.dict_dirs():
         for pat in ("th_%s_v2.idx" % lang, "th_%s*.idx" % lang, "th_%s*.idx" % lang.split("_")[0]):
             hits = sorted(glob.glob(os.path.join(d, pat)))
             if hits:
@@ -674,6 +675,13 @@ class ClipboardPane(Gtk.Window):
     def clear(self):
         self.win.app.clip_history = []
         self.refresh()
+
+
+def _with_parent():
+    """How a child is started so it stops with Show: on Linux the kernel ends it (below). Windows
+    has no such call for a plain child process."""
+    import sys
+    return {} if sys.platform == "win32" else {"preexec_fn": _die_with_parent}
 
 
 def _die_with_parent():

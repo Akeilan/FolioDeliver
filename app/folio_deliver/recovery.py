@@ -30,6 +30,9 @@ def _alive(pid, boot):
     """Whether the Folio Show that wrote a copy is still running (then it isn't lost)."""
     if boot != _boot_id():
         return False
+    from . import folio_os
+    if folio_os.WINDOWS:
+        return folio_os.process_alive(pid)
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError, TypeError):

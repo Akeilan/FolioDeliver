@@ -8,7 +8,7 @@ for p in (os.path.join(_HERE, ".."),                                  # /usr/lib
           os.path.join(_HERE, "..", "..", "engine", "out"),
           os.path.join(_HERE, "..", "..", "engine", "target", "release")):
     p = os.path.abspath(p)
-    if os.path.exists(os.path.join(p, "deliver_core.so")) and p not in sys.path:
+    if any(os.path.exists(os.path.join(p, "deliver_core" + x)) for x in (".so", ".pyd")) and p not in sys.path:
         sys.path.insert(0, p)
 
 import deliver_core  # noqa: E402

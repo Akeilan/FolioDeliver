@@ -15,7 +15,12 @@ const DIRS: &[&str] = &["/usr/share/folio-writer/hyphen", "/usr/share/hyphen", "
 
 fn load(lang: &str) -> Option<Patterns> {
     let name = format!("hyph_{lang}.dic");
-    let text = DIRS.iter().find_map(|d| std::fs::read(format!("{d}/{name}")).ok())?;
+    // FOLIO_HYPHEN_DIRS first (the Windows build's own folder), then the system's
+    let extra: Vec<std::path::PathBuf> = std::env::var_os("FOLIO_HYPHEN_DIRS").map(|v| std::env::split_paths(&v).collect()).unwrap_or_default();
+    let text = extra
+        .iter()
+        .find_map(|d| std::fs::read(d.join(&name)).ok())
+        .or_else(|| DIRS.iter().find_map(|d| std::fs::read(format!("{d}/{name}")).ok()))?;
     let text = String::from_utf8_lossy(&text);
     let mut p = Patterns { pats: HashMap::new(), left: 2, right: 3, max_len: 0 };
     for (i, line) in text.lines().enumerate() {

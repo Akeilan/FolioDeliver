@@ -171,6 +171,14 @@ impl FontCache {
                 db.load_fonts_dir(d);
             }
         }
+        // (a list in the system's own form: ':' between folders on Linux, ';' on Windows)
+        if let Some(dirs) = std::env::var_os("FOLIO_FONT_DIRS") {
+            for d in std::env::split_paths(&dirs) {
+                if d.is_dir() {
+                    db.load_fonts_dir(d);
+                }
+            }
+        }
         db.set_sans_serif_family("Liberation Sans");
         db.set_serif_family("Liberation Serif");
         db.set_monospace_family("Liberation Mono");
